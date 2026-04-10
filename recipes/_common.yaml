@@ -28,6 +28,28 @@ defaults: |
   {{{root_password}}}
   PWEOF
 
+  # Populate /etc/config/system and set a unique hostname.
+  #
+  # On the Radxa E20C (and possibly other rockchip targets) the OpenWrt
+  # base image ships with an empty /etc/config/system AND a stripped
+  # busybox that has no `hostname` applet — so the normal init scripts
+  # have neither config to read nor a command to apply it, and the
+  # device boots as `(none)`. We work around both by writing the config
+  # ourselves with a random-tail hostname so every probe is
+  # individually identifiable, and nudging the kernel hostname directly
+  # via /proc in case something on the boot path actually reads it.
+  ORB_HOSTNAME="Orb-$((RANDOM % 10000))"
+  cat > /etc/config/system <<SYSEOF
+  config system
+      option hostname '$ORB_HOSTNAME'
+      option timezone 'UTC'
+      option ttylogin '0'
+      option log_size '64'
+      option urandom_seed '0'
+  SYSEOF
+  echo "$ORB_HOSTNAME" > /etc/hostname 2>/dev/null || true
+  echo "$ORB_HOSTNAME" > /proc/sys/kernel/hostname 2>/dev/null || true
+
   # Register Orb for automatic updates. The orb package (baked in via the
   # Orb apk feed at build time) ships /usr/bin/orb-update; `install` wires
   # it into whatever OpenWrt scheduling mechanism it uses.

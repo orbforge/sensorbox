@@ -51,6 +51,18 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [ ] CI job (GitHub Actions?) that rebuilds the custom ImageBuilder on each update to the patches or DTS.
 - [ ] When PR #22707 merges upstream, drop the custom path for this device and fall back to stock ImageBuilder.
 
+## Radxa E20C stripped-busybox workaround — follow up
+
+On OpenWrt 25.12.0 and 25.12.2 for rockchip/armv8 radxa_e20c, busybox ships with applets like `hostname`, `chpasswd`, `blkid`, and `logread` compiled OUT. `/etc/config/system` ships empty, so the device boots as `(none)` with no hostname. `_common.yaml` currently papers over all of this by populating `/etc/config/system` with a random `Orb-NNNN` hostname and writing `/proc/sys/kernel/hostname` directly. The password-setting line uses `passwd` with a stdin heredoc instead of `chpasswd`.
+
+This is a band-aid. The real fix is one of:
+
+- [ ] Add `coreutils-hostname` (or equivalent) to the E20C recipe's `packages` so the device has a real `hostname` binary.
+- [ ] Investigate whether a full (non-stripped) busybox can be installed via the apk feed on this target. May not be possible if busybox is compiled monolithically into the base image — in which case the feed package would be a no-op.
+- [ ] If the minimal busybox is a target-specific build choice upstream, report it to openwrt-devel. "Device has no `hostname`" is a surprising default.
+- [ ] Verify on NanoPi R5C and any other rockchip targets whether they have the same stripped build; may be broader than E20C.
+- [ ] Once fixed properly, simplify `_common.yaml` to remove the /proc/sys/kernel/hostname write and the /etc/config/system bootstrapping.
+
 ## Recipe freshness — cross-cutting
 
 - [ ] Scheduled remote trigger that checks OpenWrt's release feed for new stable releases and reports which recipes are still pinned to older versions. Mirrors the PR #1590 watcher pattern. When a new stable drops, the report lists each stale recipe so a maintainer can re-test on hardware and bump. Keeps the "opinionated, current" intent of GOALS.md from rotting into "opinionated, stale."
