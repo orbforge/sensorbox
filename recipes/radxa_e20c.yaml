@@ -5,7 +5,10 @@ description: "Ethernet-only Orb probe. Two GbE ports bridged as a single LAN cli
 target: rockchip/armv8
 profile: radxa_e20c
 arch: aarch64_generic
-min_version: "25.12.0"
+# Pinned version the recipe is tested against. Bump only after re-verifying
+# on real hardware — 25.12.0 for this target has a broken overlay-format
+# path that leaves the rootfs on a tmpfs fallback and breaks persistence.
+version: "25.12.2"
 
 capabilities:
   wifi: false

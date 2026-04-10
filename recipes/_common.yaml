@@ -16,11 +16,17 @@ defaults: |
   ORBCFG
   chmod 600 /etc/config/orb
 
-  # Set root password. Single-quoted heredoc preserves shell metacharacters
-  # in the rendered value.
-  chpasswd <<'CHPASSWD'
-  root:{{{root_password}}}
-  CHPASSWD
+  # Set root password. busybox passwd reads from stdin when non-interactive
+  # and expects the new password twice (confirmation). The single-quoted
+  # heredoc preserves shell metacharacters in the rendered password. We
+  # suppress output and ignore exit status because busybox passwd prints
+  # "Changing password for root" to stderr and may warn on weak passwords
+  # without failing to set them. chpasswd is the cleaner tool but is not
+  # in the default OpenWrt busybox build; passwd always is.
+  passwd root >/dev/null 2>&1 <<'PWEOF' || true
+  {{{root_password}}}
+  {{{root_password}}}
+  PWEOF
 
   # Register Orb for automatic updates. The orb package (baked in via the
   # Orb apk feed at build time) ships /usr/bin/orb-update; `install` wires

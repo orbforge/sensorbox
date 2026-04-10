@@ -34,7 +34,7 @@ Each block is Mustache-rendered with the form inputs, then joined, then sent as 
 | field             | type   | notes                                                                 |
 |-------------------|--------|-----------------------------------------------------------------------|
 | `description`     | string | Short blurb shown next to the title.                                  |
-| `min_version`     | string | Minimum OpenWrt version this recipe targets. Recipes for devices requiring 25.12+ for apk should set this. |
+| `version`         | string | OpenWrt version the recipe is pinned to. Sent verbatim to ASU as the build target. Pin to a version you have actually validated on the target hardware — silent regressions across OpenWrt patch releases have broken overlay formatting, driver init, and other boot-path things for specific boards in the past. |
 | `capabilities`    | object | Hardware capability flags — see below.                                |
 | `packages`        | list   | Extra packages beyond the profile defaults. `orb` is contributed by every recipe that wants Orb baked in. |
 | `repositories`    | object | Name → URL mapping for extra apk feeds. Merged with `_common.yaml`'s repos.  |
