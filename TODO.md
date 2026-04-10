@@ -51,6 +51,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [ ] CI job (GitHub Actions?) that rebuilds the custom ImageBuilder on each update to the patches or DTS.
 - [ ] When PR #22707 merges upstream, drop the custom path for this device and fall back to stock ImageBuilder.
 
+## Recipe authoring ergonomics
+
+- [ ] Live-reload recipes without a selector restart. Today the nginx entrypoint hook copies `recipes/*.yaml` from the read-only `/orb-recipes-src` bind mount into a writable `/orb-recipes` directory and generates `index.json` once at container start. Editing `recipes/` on the host requires `podman compose restart selector` to pick up changes, which is a recipe-author papercut that will bite every contributor. Options: (a) drop the copy step entirely and have nginx serve directly from the bind mount with a small dynamic index endpoint (requires nginx scripting via njs or similar); (b) re-run the index generator via inotify / fs watcher; (c) regenerate `index.json` on every HTTP request via a tiny CGI — ugly but simple; (d) document the restart as a known step in `recipes/README.md` and move on. Option (a) or (d) is probably right.
+
 ## Radxa E20C stripped-busybox workaround — follow up
 
 On OpenWrt 25.12.0 and 25.12.2 for rockchip/armv8 radxa_e20c, busybox ships with applets like `hostname`, `chpasswd`, `blkid`, and `logread` compiled OUT. `/etc/config/system` ships empty, so the device boots as `(none)` with no hostname. `_common.yaml` currently papers over all of this by populating `/etc/config/system` with a random `Orb-NNNN` hostname and writing `/proc/sys/kernel/hostname` directly. The password-setting line uses `passwd` with a stdin heredoc instead of `chpasswd`.
