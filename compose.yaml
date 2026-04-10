@@ -61,6 +61,11 @@ services:
       # Same-origin reverse proxy to ASU, so the browser never makes a
       # cross-origin request and ASU does not need CORS headers.
       - ./selector/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Recipes mounted read-only; the entrypoint hook below copies them
+      # into a writable container-layer path and generates an index.json
+      # so the browser can enumerate devices without a directory listing.
+      - ./recipes:/orb-recipes-src:ro
+      - ./selector/generate-recipes-index.sh:/docker-entrypoint.d/40-generate-recipes-index.sh:ro
     ports:
       - "127.0.0.1:8080:80"
     depends_on:
