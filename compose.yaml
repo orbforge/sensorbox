@@ -1,0 +1,55 @@
+services:
+  redis:
+    image: docker.io/redis/redis-stack-server
+    restart: unless-stopped
+    volumes:
+      - ./redis-data:/data:rw
+
+  asu-server:
+    image: docker.io/openwrt/asu:latest
+    restart: unless-stopped
+    command: uv run uvicorn --host 0.0.0.0 asu.main:app
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ${PUBLIC_PATH}/store:${PUBLIC_PATH}/store:ro
+      - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
+
+  asu-worker:
+    image: docker.io/openwrt/asu:latest
+    restart: unless-stopped
+    command: uv run rqworker --logging_level INFO
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
+      - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
+    # The Podman machine VM runs Fedora CoreOS with SELinux enforcing.
+    # Without this, the worker can't open the bind-mounted Podman socket
+    # even though Unix perms would allow it (EACCES on stat).
+    security_opt:
+      - label=disable
+    depends_on:
+      - redis
+
+  selector:
+    image: docker.io/nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./firmware-selector/www:/usr/share/nginx/html:ro
+      # Overlay Orb deployment config on top of the fork's default config.js.
+      # Keeps the submodule pristine for actual product changes.
+      - ./selector/config.js:/usr/share/nginx/html/config.js:ro
+      # Same-origin reverse proxy to ASU, so the browser never makes a
+      # cross-origin request and ASU does not need CORS headers.
+      - ./selector/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - asu-server
