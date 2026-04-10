@@ -1,0 +1,3 @@
+[submodule "firmware-selector"]
+	path = firmware-selector
+	url = git@github.com:dboze/firmware-selector-openwrt-org.git
