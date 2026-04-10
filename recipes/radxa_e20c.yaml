@@ -1,0 +1,38 @@
+id: radxa_e20c
+title: "Radxa E20C"
+description: "Ethernet-only Orb probe. Two GbE ports bridged as a single LAN client; plug either port into the user's network."
+
+target: rockchip/armv8
+profile: radxa_e20c
+arch: aarch64_generic
+min_version: "25.12.0"
+
+capabilities:
+  wifi: false
+
+packages:
+  - orb
+
+repositories:
+  orb: "https://pkgs.orb.net/stable/openwrt-apk/aarch64_generic/packages.adb"
+
+repository_keys:
+  - orb-apk-ec.pub
+
+defaults: |
+  # Bridge both ethernet ports as a single DHCP client. Either port can be
+  # plugged into the user's LAN; the other is a pass-through. The E20C has
+  # no WAN in any meaningful sense — it's a probe, not a router.
+  uci set network.lan.device='br-lan'
+  uci set network.lan.proto='dhcp'
+  uci set network.@device[0]=device
+  uci set network.@device[0].name='br-lan'
+  uci set network.@device[0].type='bridge'
+  uci set network.@device[0].ports='eth0 eth1'
+  uci commit network
+
+  # Remove the stock WAN configuration so nothing tries to run as a
+  # gateway or run DHCP server on one of the ports.
+  uci delete network.wan
+  uci delete network.wan6
+  uci commit network

@@ -1,0 +1,28 @@
+# Shared pre-amble for every orb-forge recipe. The firmware-selector renders
+# this block's `defaults` with Mustache, prepends it to the device recipe's
+# rendered `defaults`, and sends the concatenation to ASU as the build
+# request's `defaults` field.
+#
+# Everything in here is an orb-forge invariant — true for every device, not
+# optional. Device-specific config belongs in the per-device recipe, not here.
+
+defaults: |
+  # Seed the Orb deployment token. The orb service reads ORB_DEPLOYMENT_TOKEN
+  # from /etc/config/orb on first start and auto-links to the user's account.
+  # See https://orb.net/docs/setup-sensor/linux/openwrt.
+  cat > /etc/config/orb <<'ORBCFG'
+  config orb 'orb'
+      list env 'ORB_DEPLOYMENT_TOKEN={{{orb_token}}}'
+  ORBCFG
+  chmod 600 /etc/config/orb
+
+  # Set root password. Single-quoted heredoc preserves shell metacharacters
+  # in the rendered value.
+  chpasswd <<'CHPASSWD'
+  root:{{{root_password}}}
+  CHPASSWD
+
+  # Register Orb for automatic updates. The orb package (baked in via the
+  # Orb apk feed at build time) ships /usr/bin/orb-update; `install` wires
+  # it into whatever OpenWrt scheduling mechanism it uses.
+  /usr/bin/orb-update install
