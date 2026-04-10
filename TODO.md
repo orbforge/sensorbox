@@ -51,6 +51,11 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [ ] CI job (GitHub Actions?) that rebuilds the custom ImageBuilder on each update to the patches or DTS.
 - [ ] When PR #22707 merges upstream, drop the custom path for this device and fall back to stock ImageBuilder.
 
+## Recipe freshness — cross-cutting
+
+- [ ] Scheduled remote trigger that checks OpenWrt's release feed for new stable releases and reports which recipes are still pinned to older versions. Mirrors the PR #1590 watcher pattern. When a new stable drops, the report lists each stale recipe so a maintainer can re-test on hardware and bump. Keeps the "opinionated, current" intent of GOALS.md from rotting into "opinionated, stale."
+- [ ] Consider recording the SHA256 of the resulting image manifest in each recipe after validation so drifts are visible in git history (e.g. `validated_against: "openwrt-25.12.2 rockchip/armv8 rev r32802-f505120278"`). Forces an intentional bump, not a silent one.
+
 ## Phase 5 — Community and hardening
 
 - [ ] JSON Schema for recipe validation (asked about in the Phase 1 design discussion). Run via pre-commit or CI; reject malformed or under-specified recipes.
