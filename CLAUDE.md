@@ -19,9 +19,9 @@ Read `GOALS.md` first — it is the source of truth for product intent and const
 
 orb-forge is licensed MIT. It depends on two upstream OpenWrt projects handled very differently:
 
-- **ASU** (Attended Sysupgrade Server, https://github.com/openwrt/asu, GPL-2.0). **Consumed as the published `docker.io/openwrt/asu:latest` container image.** No source in this repo — not vendored, not a submodule, gitignored if cloned locally. Extend via compose config, env vars, sidecars, or forked ImageBuilder inputs, never by patching ASU itself. Reasons we need it (from GOALS.md): bake in Orb, build from branches/forks while waiting on kernel/OpenWrt merges, ship proprietary or source-built Wi-Fi drivers (e.g. Intel BE200). Python/FastAPI + RQ workers + Redis; its worker spawns per-build containers via the **Podman** API (not Docker — see "Why Podman" below).
+- **ASU** (Attended Sysupgrade Server, https://github.com/openwrt/asu, GPL-2.0). Built from the **`asu/` submodule pointing at `dboze/asu` on the `orb-patches` branch**. The `orb-patches` branch is upstream `openwrt/asu` main with a four-commit cherry-pick of open PR **openwrt/asu#1590** ("Support additional apk feeds" by andibraeu) applied on top. This cherry-pick is the minimum ASU needs to support **custom apk package feeds in `append` mode** — which orb-forge requires to bake the `orb` package into 24.10+/25.xx images at build time without losing the stock OpenWrt feeds. PR #1590 (not #1589; see below) is the right one because it preserves the default `packages.adb` feeds; #1589 only supports replace-mode and causes "impossible package selection" errors for every stock package. A scheduled remote trigger at https://claude.ai/code/scheduled/trig_01QQw8LgQs5KLPTGdhkEQCia checks daily whether PR #1590 has merged upstream; when it does, the next interactive session should switch the submodule URL back to `openwrt/asu` directly and the fork becomes vestigial. Both `asu-server` and `asu-worker` in `compose.yaml` build from this submodule using upstream's `Containerfile` (unmodified) and tag the resulting image as `localhost/orb-forge/asu:orb-patches`. Python/FastAPI + RQ workers + Redis; the worker spawns per-build containers via the **Podman** API (not Docker — see "Why Podman" below).
 - **Firmware Selector** (upstream GitLab: openwrt/web/firmware-selector-openwrt-org). Forked to https://github.com/dboze/firmware-selector-openwrt-org and included as a **git submodule at `firmware-selector/`**. This is where Orb-specific UI code belongs. The submodule has an `upstream` remote configured for syncing improvements from OpenWrt. Configurable knobs the Orb UI must expose (per GOALS.md): supported Wi-Fi card, SSID/security/password, `ORB_DEPLOYMENT_TOKEN`, root password, Wi-Fi band policy (auto / 2.4 / 5 / 6 GHz). Future nice-to-have: pointing the device at the local ASU for periodic security upgrades.
-- `asu/` — gitignored. Optional local reference clone of upstream ASU for reading code while debugging. Never referenced by compose or build.
+- `asu/` — git submodule (see above). Source lives here; compose builds the image from it.
 - `GOALS.md` — product brief.
 
 **Working in the submodule:** if you edit anything under `firmware-selector/`, you're making commits in the fork repo, not in orb-forge. Commit and push inside the submodule first, then come back to orb-forge and commit the updated submodule pointer. `git status` in orb-forge will show `firmware-selector` as "modified" until you do.
@@ -32,7 +32,21 @@ ASU's build worker imports `podman-py` and talks to the Podman REST API over a U
 
 ## Working with the subprojects
 
-### ASU (consumed as published image)
+### ASU (built from submodule with PR #1590 cherry-pick)
+
+**Baking the `orb` package into images.** The Orb apk feed lives at `https://pkgs.orb.net/stable/openwrt-apk/$ARCH/packages.adb` and is signed by `orb-apk-ec.pub` (EC key). To include Orb in a build, the ASU build request must set:
+
+- `packages` including `"orb"`
+- `repositories = {"orb": "https://pkgs.orb.net/stable/openwrt-apk/<arch>/packages.adb"}`
+- `repositories_mode = "append"` — **do not omit this**; the default is `"replace"`, which drops the stock OpenWrt feeds and makes every standard package unresolvable.
+- `repository_keys = ["<contents of orb-apk-ec.pub>"]`
+- `REPOSITORY_ALLOW_LIST` in ASU's env must include `"https://pkgs.orb.net/stable/openwrt-apk/"` (already set in `.env.example`). Empty allow list = ASU denies *all* custom repos.
+
+This has been validated end-to-end for rockchip/armv8 radxa_e20c on OpenWrt 25.12.2 — orb 1.4.11 landed in the image manifest.
+
+**Architecture string for the feed URL** is the apk arch (e.g. `aarch64_generic`), not the OpenWrt target. rockchip/armv8 → `aarch64_generic`. This is *not* automatically derivable from the target in the current code path; the client has to send the right URL per target. When the firmware-selector fork learns to send Orb repos by default, it'll need a small arch lookup table.
+
+**Legacy info.**
 
 - Python project managed with `uv`; entrypoint `asu/main.py` (FastAPI).
 - Runs as a multi-container stack via `podman-compose.yml` (server + Podman API + worker + Redis). Builds happen **inside containers** for isolation — don't try to run ImageBuilder directly on the host.

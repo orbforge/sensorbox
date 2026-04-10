@@ -1,7 +1,3 @@
-# Local reference clone of upstream ASU (not part of this repo — consumed as
-# a published container image). See README.md for clone instructions.
-/asu/
-
 # ASU runtime state
 .env
 /public/

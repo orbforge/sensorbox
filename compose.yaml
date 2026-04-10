@@ -5,8 +5,17 @@ services:
     volumes:
       - ./redis-data:/data:rw
 
+  # Both ASU services are built from the dboze/asu submodule on the
+  # orb-patches branch, which cherry-picks openwrt/asu#1589 (apk custom
+  # repository support). When #1589 merges upstream, the scheduled trigger
+  # at https://claude.ai/code/scheduled/trig_01QQw8LgQs5KLPTGdhkEQCia will
+  # report the merge and the submodule should be switched back to
+  # openwrt/asu main.
   asu-server:
-    image: docker.io/openwrt/asu:latest
+    build:
+      context: ./asu
+      dockerfile: Containerfile
+    image: localhost/orb-forge/asu:orb-patches
     restart: unless-stopped
     command: uv run uvicorn --host 0.0.0.0 asu.main:app
     env_file: .env
@@ -21,7 +30,10 @@ services:
       - redis
 
   asu-worker:
-    image: docker.io/openwrt/asu:latest
+    build:
+      context: ./asu
+      dockerfile: Containerfile
+    image: localhost/orb-forge/asu:orb-patches
     restart: unless-stopped
     command: uv run rqworker --logging_level INFO
     env_file: .env
