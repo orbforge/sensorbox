@@ -55,23 +55,9 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 - [ ] Live-reload recipes without a selector restart. Today the nginx entrypoint hook copies `recipes/*.yaml` from the read-only `/orb-recipes-src` bind mount into a writable `/orb-recipes` directory and generates `index.json` once at container start. Editing `recipes/` on the host requires `podman compose restart selector` to pick up changes, which is a recipe-author papercut that will bite every contributor. Options: (a) drop the copy step entirely and have nginx serve directly from the bind mount with a small dynamic index endpoint (requires nginx scripting via njs or similar); (b) re-run the index generator via inotify / fs watcher; (c) regenerate `index.json` on every HTTP request via a tiny CGI — ugly but simple; (d) document the restart as a known step in `recipes/README.md` and move on. Option (a) or (d) is probably right.
 
-## Stripped busybox on Radxa E20C — curiosity, not a blocker
+## First-boot noise — cosmetic
 
-On OpenWrt 25.12.2 for rockchip/armv8 radxa_e20c, busybox is built without the `hostname`, `chpasswd`, `blkid`, and `logread` applets. This initially looked like a disaster and drove several hours of debugging, but it turns out the OpenWrt init applies the uci-configured hostname to the running kernel without using the busybox `hostname` binary (probably direct `sethostname(2)` via procd or a `/proc/sys/kernel/hostname` write in `/etc/init.d/boot`). `_common.yaml` uses `passwd` with a stdin heredoc instead of the missing `chpasswd` and that works fine.
-
-So the stripped build is not functionally blocking anything in orb-forge today. But it is surprising enough that it's probably worth:
-
-- [ ] Verify on NanoPi R5C and other future targets whether they have the same stripped busybox; if it's a rockchip-wide thing, worth understanding. If it's E20C-specific, worth understanding even more.
-- [ ] Consider filing an openwrt-devel question: "Device has no `hostname` / `logread` / `chpasswd` / `blkid` applets" is surprising default behavior that cost hours of confusion; maybe the stripping is intentional for flash-space reasons and maybe it isn't.
-- [ ] If anything in orb-forge later needs one of the missing applets, add `coreutils-hostname` or equivalent to the affected recipe's packages list to pull in a real binary from the apk feed. Recipe `packages` is already the right extension point.
-
-## Orb apk feed missing on running device — orb-update gap
-
-`/etc/apk/repositories.d/customfeeds.list` on a freshly flashed probe is empty — just the stock placeholder comments. The Orb apk feed that ASU uses at build time (via the `repositories` field in the build request) gets baked into the image for the build step, but the feed URL and signing key aren't persisted to the running device's apk config. This means:
-
-- [ ] `orb-update` on the device probably cannot fetch new Orb versions because apk has no record of where to pull them from. Needs verification — maybe `orb-update install` sets up the feed itself (install.sh's apk3 path does exactly this), or maybe it has its own binary downloader that doesn't use apk. Until verified, the "auto-updates work" claim is unproven.
-- [ ] If orb-update doesn't self-manage the feed, add it from `_common.yaml`: fetch `recipes/keys/orb-apk-ec.pub` into `/etc/apk/keys/`, append `https://pkgs.orb.net/stable/openwrt-apk/<arch>/packages.adb` to `/etc/apk/repositories.d/customfeeds.list`. The arch would need to come from the recipe (we already have `arch: aarch64_generic` in the E20C recipe), rendered through Mustache as `{{{arch}}}` — which means plumbing a recipe-side variable through to `_common.yaml` that doesn't exist today.
-- [ ] Separately: first-boot `apk info orb` emits several "No such file or directory" warnings about missing cache for the stock OpenWrt feeds. Purely cosmetic / first-boot noise — `apk update` would fix it if the device has internet. Not worth solving unless it's making logs noisy.
+- [ ] First-boot `apk info orb` emits several "No such file or directory" warnings about missing cache for the stock OpenWrt feeds. Purely cosmetic / first-boot noise — `apk update` would fix it if the device has internet. Not worth solving unless it's making logs noisy.
 
 ## Recipe freshness — cross-cutting
 
@@ -108,6 +94,7 @@ So the stripped build is not functionally blocking anything in orb-forge today. 
 ## Done
 
 - [x] **Phase 1 MVP: validated on hardware.** E20C → recipe → recipe-driven UI → ASU with apk custom feed support → orb baked in → first-boot uci-defaults sets hostname, root password, Orb token, bridges both ethernet ports → device boots, auto-links to the Orb account, auto-updates enabled. End-to-end pipeline confirmed working. (commits 701f309 through 4fccae8)
+- [x] **Stripped-busybox investigation: non-issue.** The Radxa E20C 25.12.2 build does compile busybox without the `hostname`/`chpasswd`/`blkid`/`logread` applets, but the OpenWrt init path doesn't need the `hostname` binary to apply a uci-configured hostname to the running kernel — it uses a direct `sethostname(2)` or similar syscall path. `_common.yaml`'s `passwd` heredoc replaces the missing `chpasswd` cleanly. The entire investigation was a red herring driven by the `diff_packages: true` bug that was stripping base-files on every build. Marking resolved.
 - [x] Scaffolding: MIT license, `firmware-selector/` submodule of dboze fork, GOALS.md, README, CLAUDE.md. (3f06bd3)
 - [x] Compose stack with redis + asu-server + asu-worker + selector; same-origin nginx reverse proxy so no CORS. (0171a69)
 - [x] Build Orb into images at build time via ASU's custom apk repository support, with stock OpenWrt feeds preserved (`repositories_mode: "append"`). Verified end-to-end for Radxa E20C 25.12.2 with orb 1.4.11 in the manifest. (1781217)

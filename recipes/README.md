@@ -59,6 +59,7 @@ Every `defaults` block (both in `_common.yaml` and in each recipe) is rendered w
 |-------------------|--------------------------------------------------|-----------------------|
 | `orb_token`       | Orb Deployment Token form input                  | always                |
 | `root_password`   | Root Password form input                         | always                |
+| `orb_apk_key`     | Contents of the first file listed in `repository_keys` — by convention this must be the Orb apk signing key. Used by `_common.yaml` to persist the feed on the running device so `orb-update` can fetch new Orb versions at runtime. | always |
 | `wifi_ssid`       | Wi-Fi SSID form input                            | only if `capabilities.wifi` |
 | `wifi_password`   | Wi-Fi password form input                        | only if `capabilities.wifi` |
 | `wifi_encryption` | Wi-Fi encryption form selector (`psk2` default)  | only if `capabilities.wifi` |

@@ -40,7 +40,31 @@ defaults: |
   uci set system.@system[0].hostname="$ORB_HOSTNAME"
   uci commit system
 
-  # Register Orb for automatic updates. The orb package (baked in via the
-  # Orb apk feed at build time) ships /usr/bin/orb-update; `install` wires
-  # it into whatever OpenWrt scheduling mechanism it uses.
+  # Persist the Orb apk feed on the running device so orb-update can
+  # actually fetch new Orb versions at runtime. ASU consumes this feed
+  # at image-build time via the build request's `repositories` field,
+  # but that configuration is consumed during ImageBuilder assembly and
+  # is NOT carried into the final image's apk config — mirroring
+  # pkgs.orb.net/install.sh's apk3 path is required. The architecture
+  # is read from /etc/apk/arch on the device so any future target gets
+  # the right value without recipe plumbing. The key content is
+  # Mustache-substituted by the selector from the first file listed in
+  # the recipe's repository_keys (convention: the Orb apk signing key
+  # is always first).
+  mkdir -p /etc/apk/keys /etc/apk/repositories.d
+  cat > /etc/apk/keys/orb-packages.pem <<'ORB_APK_KEY_EOF'
+  {{{orb_apk_key}}}
+  ORB_APK_KEY_EOF
+
+  ORB_APK_ARCH=$(cat /etc/apk/arch 2>/dev/null || echo aarch64_generic)
+  ORB_APK_FEED="https://pkgs.orb.net/stable/openwrt-apk/${ORB_APK_ARCH}/packages.adb"
+  if ! grep -qxF "$ORB_APK_FEED" /etc/apk/repositories.d/customfeeds.list 2>/dev/null; then
+      echo "$ORB_APK_FEED" >> /etc/apk/repositories.d/customfeeds.list
+  fi
+
+  # Register Orb for automatic updates. The orb package (baked in via
+  # the Orb apk feed at build time) ships /usr/bin/orb-update; `install`
+  # wires it into whatever OpenWrt scheduling mechanism it uses. This
+  # runs AFTER the feed setup above so that when orb-update eventually
+  # calls apk to check for new versions, the feed is already in place.
   /usr/bin/orb-update install
