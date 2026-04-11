@@ -42,6 +42,7 @@ Each block is Mustache-rendered with the form inputs, then joined, then sent as 
 | `repositories`    | object | Name → URL mapping for extra apk feeds. Merged with `_common.yaml`'s repos.  |
 | `repository_keys` | list   | Filenames under `recipes/keys/` holding public keys for those feeds.  |
 | `defaults`        | string | Device-specific uci-defaults template. Mustache-rendered. See caveats below. |
+| `install`         | object | Describes how to install this device to onboard flash (e.g. eMMC) from an SD-booted install. See the subsection below. If absent, the "Install to eMMC" form checkbox is hidden when this recipe is selected. |
 
 ## Capabilities
 
@@ -53,6 +54,30 @@ Capabilities describe what hardware the device has, and the UI uses them to deci
 
 The mandatory form fields — **Orb Deployment Token** and **Root Password** — are always present and always required. These are not capabilities; they are orb-forge invariants.
 
+## Install to onboard flash (`install` block)
+
+A recipe that declares an `install` block tells the UI that this device **can** be flashed from SD to its own onboard storage (typically eMMC) on first boot. The UI shows an "Install to eMMC on first boot" checkbox (default checked) for those recipes, and the generated uci-defaults script contains a procd init.d service that performs the copy on first boot.
+
+The copy is **not** a full `dd` of the live SD card. It copies only the *static* parts — partition table, boot partition, and the squashfs rootfs — so there's no risk of catching a mid-write overlay page. The end of the squashfs is computed at runtime from `/sys/block/loop0/size` (the running squashfs backing) plus the start offset of the rootfs partition. The overlay tail on the SD is deliberately left behind. The eMMC boots fresh, re-runs the same uci-defaults script (from the pristine squashfs), and re-generates its own random hostname etc. — so the eMMC ends up with the same Orb token and configuration but its own settled state.
+
+The installer also includes runtime guards so it's safe to leave enabled on every boot:
+
+- Skips if `/etc/orb-forge-installed` exists (sentinel — already installed on this filesystem)
+- Skips if the eMMC block device isn't present (handles E20C variants without onboard flash)
+- Skips if no SD is inserted (post-install eMMC boots)
+- On failure, sets the SYS LED to fast-blink and leaves the service enabled so the next boot retries
+
+Fields:
+
+| field                   | type   | notes                                                                                  |
+|-------------------------|--------|----------------------------------------------------------------------------------------|
+| `sd_device`             | string | Block device node of the SD card (e.g. `/dev/mmcblk1`).                                |
+| `emmc_device`           | string | Block device node of the onboard flash (e.g. `/dev/mmcblk0`).                          |
+| `size_from_partition`   | string | Partition name as seen under `/sys/class/block/` (e.g. `mmcblk1p2`) whose `start` sector offset is added to `/sys/block/loop0/size` to compute the dd count. |
+| `status_led`            | string | Kernel-exposed LED name under `/sys/class/leds/` (e.g. `green:heartbeat`). Used to signal working / done / error states during install. |
+
+The user's install-to-eMMC choice at build time is available as Mustache variable `install_to_emmc` (boolean) for conditional section rendering.
+
 ## Templating
 
 Every `defaults` block (both in `_common.yaml` and in each recipe) is rendered with [Mustache.js](https://github.com/janl/mustache.js) before being concatenated and sent to ASU. Available variables:
@@ -62,6 +87,8 @@ Every `defaults` block (both in `_common.yaml` and in each recipe) is rendered w
 | `orb_token`       | Orb Deployment Token form input                  | always                |
 | `root_password`   | Root Password form input                         | always                |
 | `orb_apk_key`     | Contents of the first file listed in `repository_keys` — by convention this must be the Orb apk signing key. Used by `_common.yaml` to persist the feed on the running device so `orb-update` can fetch new Orb versions at runtime. | always |
+| `install_to_emmc` | Whether the user checked the "Install to eMMC on first boot" form checkbox. `_common.yaml` wraps the installer block in `{{#install_to_emmc}}...{{/install_to_emmc}}` so it only appears in the script when true. | always (boolean) |
+| `install_sd_device`, `install_emmc_device`, `install_size_from_partition`, `install_status_led` | Mirror of the recipe's `install` block fields. Used inside `_common.yaml`'s installer script to parameterize the dd source/target, size calculation, and LED. Empty strings when the recipe has no `install` block. | always (strings) |
 | `wifi_ssid`       | Wi-Fi SSID form input                            | only if `capabilities.wifi` |
 | `wifi_password`   | Wi-Fi password form input                        | only if `capabilities.wifi` |
 | `wifi_encryption` | Wi-Fi encryption form selector (`psk2` default)  | only if `capabilities.wifi` |

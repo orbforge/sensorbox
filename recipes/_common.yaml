@@ -80,3 +80,101 @@ defaults: |
   # runs AFTER the feed setup above so that when orb-update eventually
   # calls apk to check for new versions, the feed is already in place.
   /usr/bin/orb-update install
+
+  {{#install_to_emmc}}
+  # SD→eMMC installer (opt-in via the "Install to eMMC" form checkbox;
+  # only rendered into the script when the user has that box checked
+  # AND the recipe has an `install` block). Drops a procd init.d
+  # service that runs at START=20 on this first boot, clones the
+  # static SD partitions to eMMC using a dd size computed from /dev/
+  # loop0's size (the running squashfs) and mmcblk1p2's start offset,
+  # and signals status on the physical SYS LED. Does NOT touch the
+  # overlay tail, so no live-filesystem risk.
+  cat > /etc/init.d/orb-forge-installer <<'ORB_INSTALLER_EOF'
+  #!/bin/sh /etc/rc.common
+  START=20
+  STOP=
+
+  # Config baked in at build time via Mustache substitution before the
+  # uci-defaults script was written. These values are literal strings
+  # from the recipe's `install` block.
+  SD_DEVICE="{{{install_sd_device}}}"
+  EMMC_DEVICE="{{{install_emmc_device}}}"
+  SIZE_PARTITION="{{{install_size_from_partition}}}"
+  STATUS_LED="{{{install_status_led}}}"
+  SENTINEL=/etc/orb-forge-installed
+
+  led_write() {
+      echo "$2" > "/sys/class/leds/$STATUS_LED/$1" 2>/dev/null || true
+  }
+
+  led_working() {
+      led_write trigger timer
+      led_write delay_on 500
+      led_write delay_off 500
+  }
+
+  led_done() {
+      led_write trigger none
+      led_write brightness 255
+  }
+
+  led_error() {
+      led_write trigger timer
+      led_write delay_on 100
+      led_write delay_off 100
+  }
+
+  log() {
+      logger -t orb-installer "$@" 2>/dev/null || true
+  }
+
+  boot() {
+      # Already installed on this filesystem — nothing to do.
+      [ -f "$SENTINEL" ] && return 0
+
+      # No eMMC on this device variant — skip silently. Some E20C
+      # units ship without onboard flash; a single image covers both.
+      [ -b "$EMMC_DEVICE" ] || { log "no eMMC at $EMMC_DEVICE, skipping"; return 0; }
+
+      # SD device missing — we can't install from nothing. Covers
+      # the case where this service is running on an eMMC-booted
+      # device with no SD inserted.
+      [ -b "$SD_DEVICE" ] || { log "no SD at $SD_DEVICE, skipping"; return 0; }
+
+      # Compute sector count: end of the squashfs within p2 is
+      # p2_start + loop0_size, all in 512-byte sectors. Everything
+      # from sector 0 through that count is either partition table,
+      # static boot partition, or the read-only squashfs — never
+      # the live overlay, which occupies the tail of p2.
+      local p2_start loop_size count
+      p2_start=$(cat "/sys/class/block/$SIZE_PARTITION/start" 2>/dev/null)
+      loop_size=$(cat /sys/block/loop0/size 2>/dev/null)
+      if [ -z "$p2_start" ] || [ -z "$loop_size" ]; then
+          log "ERROR: could not determine copy size (p2_start=$p2_start loop_size=$loop_size)"
+          led_error
+          return 1
+      fi
+      count=$((p2_start + loop_size))
+
+      log "starting SD->eMMC install: $SD_DEVICE -> $EMMC_DEVICE, $count sectors ($((count / 2048)) MiB)"
+      led_working
+      sync
+
+      if dd if="$SD_DEVICE" of="$EMMC_DEVICE" bs=512 count="$count" conv=fsync 2>&1 | logger -t orb-installer; then
+          sync
+          touch "$SENTINEL"
+          led_done
+          log "install complete — SYS LED solid — safe to power off and remove SD"
+          /etc/init.d/orb-forge-installer disable 2>/dev/null || true
+          return 0
+      fi
+
+      led_error
+      log "ERROR: dd failed — SYS LED fast-blinking — reflash the SD card"
+      return 1
+  }
+  ORB_INSTALLER_EOF
+  chmod +x /etc/init.d/orb-forge-installer
+  /etc/init.d/orb-forge-installer enable
+  {{/install_to_emmc}}

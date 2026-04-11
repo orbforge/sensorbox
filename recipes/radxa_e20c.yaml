@@ -13,6 +13,25 @@ version: "25.12.2"
 capabilities:
   wifi: false
 
+# Describes how to install this device to its onboard flash when the user
+# opts in via the "Install to eMMC" checkbox. The installer at runtime
+# first verifies that the emmc_device actually exists — some E20C units
+# ship without eMMC, and a single recipe covers both. If no eMMC is
+# detected, the installer skips silently.
+install:
+  sd_device: /dev/mmcblk1
+  emmc_device: /dev/mmcblk0
+  # Partition name (as seen under /sys/class/block/) of the rootfs
+  # partition on the SD card. The installer reads its start offset
+  # from sysfs and combines it with /dev/loop0's size (the running
+  # squashfs) to compute exactly how many sectors are static and
+  # safe to dd, without touching the live overlay tail.
+  size_from_partition: mmcblk1p2
+  # Physical status LED to drive during install. Must be a
+  # kernel-exposed LED under /sys/class/leds/. green:heartbeat is
+  # the E20C's SYS LED.
+  status_led: "green:heartbeat"
+
 packages:
   - orb
 
