@@ -6,6 +6,18 @@
 # Everything in here is an orb-forge invariant — true for every device, not
 # optional. Device-specific config belongs in the per-device recipe, not here.
 
+# Packages merged into every recipe's build request. These are dependencies
+# of the defaults script below — things orb-forge needs at runtime on every
+# device regardless of hardware. The selector JS deduplicates this list with
+# each recipe's own `packages` field before sending the merged set to ASU.
+packages:
+  # micrond is a minimal cron daemon that orb-update's `install` subcommand
+  # depends on to schedule periodic update checks. Without it, orb-update
+  # install prints a warning and tries to apk-install micrond itself, which
+  # silently fails when we run it in uci-defaults on a device with no
+  # internet yet. Baking it in at build time sidesteps the problem entirely.
+  - micrond
+
 defaults: |
   # Seed the Orb deployment token. The orb service reads ORB_DEPLOYMENT_TOKEN
   # from /etc/config/orb on first start and auto-links to the user's account.

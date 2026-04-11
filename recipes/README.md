@@ -13,11 +13,13 @@ At build time, the firmware-selector reads every recipe in this directory, shows
 
 The selector concatenates three things into the final `defaults` script sent to ASU:
 
-1. `_common.yaml`'s `defaults` — orb-forge-wide invariants (Orb token injection, `orb-update install`, root password).
+1. `_common.yaml`'s `defaults` — orb-forge-wide invariants (Orb token injection, Orb apk feed persistence, root password, hostname, `orb-update install`).
 2. The device recipe's `defaults` — hardware-specific configuration.
 3. The user's "Additional uci-defaults (advanced)" textarea, if non-empty.
 
 Each block is Mustache-rendered with the form inputs, then joined, then sent as ASU's `defaults` field.
+
+**Packages** from both `_common.yaml` and the selected recipe are deduplicated and merged into a single list on the build request. `_common.yaml`'s `packages` holds dependencies needed by the shared defaults script itself (currently `micrond`, required by `orb-update`'s scheduled checks); the device recipe's `packages` holds device-specific extras (currently `orb`). The final list is sent to ASU with `diff_packages: false`, so it's interpreted as additions on top of the OpenWrt profile's defaults, not a replacement.
 
 ## Required fields
 
