@@ -51,6 +51,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [ ] CI job (GitHub Actions?) that rebuilds the custom ImageBuilder on each update to the patches or DTS.
 - [ ] When PR #22707 merges upstream, drop the custom path for this device and fall back to stock ImageBuilder.
 
+## Form UX improvements
+
+- [ ] **Confirm Root Password field.** Add a second password input ("Confirm Root Password") below the existing Root Password field and validate on submit that the two values match. Without this, a typo in the root password goes completely unnoticed until the user tries to SSH in and realizes they can't. The check should be pure client-side validation — disable the build button and surface a clear error message when the fields don't match. Matches how every other "set a password" form on the internet works, and orb-forge is opinionated enough that the user shouldn't be able to skip it. Probably also applies to the Orb Deployment Token field since mistyping it silently breaks auto-linking, but the token is long enough that a typo is easier to notice.
+
 ## Recipe authoring ergonomics
 
 - [ ] Live-reload recipes without a selector restart. Today the nginx entrypoint hook copies `recipes/*.yaml` from the read-only `/orb-recipes-src` bind mount into a writable `/orb-recipes` directory and generates `index.json` once at container start. Editing `recipes/` on the host requires `podman compose restart selector` to pick up changes, which is a recipe-author papercut that will bite every contributor. Options: (a) drop the copy step entirely and have nginx serve directly from the bind mount with a small dynamic index endpoint (requires nginx scripting via njs or similar); (b) re-run the index generator via inotify / fs watcher; (c) regenerate `index.json` on every HTTP request via a tiny CGI — ugly but simple; (d) document the restart as a known step in `recipes/README.md` and move on. Option (a) or (d) is probably right.
