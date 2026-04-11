@@ -17,7 +17,7 @@ Goal: one supported device (Radxa E20C) built end-to-end from a recipe, through 
 - [ ] Fork work: collapse the upstream free-form uci-defaults textarea behind an "Advanced" disclosure, renamed "Additional uci-defaults (advanced)." Append-after-recipe semantics.
 - [ ] Fork work: build request assembly — Mustache-render `_common.defaults` + recipe `defaults` + optional advanced textarea → single `defaults` string. Send `packages`, `repositories`, `repositories_mode: "append"`, `repository_keys`, `defaults` to ASU.
 - [ ] Mount `recipes/` into the selector container via compose.yaml so edits are live.
-- [ ] End-to-end test: build an E20C image via the browser with a real Orb token, flash, verify the device boots, bridges both ethernet ports, pulls DHCP on whichever port is plugged in, links to the Orb account automatically, and has auto-updates enabled. Also close the loop on `orb-update install`: confirm exactly what it registers on the running device (crontab entry? init.d script? something else?) so `_common.yaml` can be hardened if the current one-liner turns out to be insufficient. Hardware is on hand and ready.
+- [x] End-to-end test: build an E20C image via the browser with a real Orb token, flash, verify the device boots, bridges both ethernet ports, pulls DHCP on whichever port is plugged in, links to the Orb account automatically, and has auto-updates enabled. **Validated on hardware.** The long detour on "stripped busybox" / empty `/etc/config/system` / missing `hostname` applet turned out to be caused by `diff_packages: true` in the UI build request — ASU interpreted our `packages: ["orb"]` as a full replacement list and silently removed base-files plus most busybox applets from every build. Fixed by setting `diff_packages: false` (commit 4fccae8). Future follow-up: verify what `orb-update install` actually registers on-device so `_common.yaml` can be hardened if the one-liner turns out to be insufficient.
 
 ## Phase 2 — Install to eMMC
 
@@ -101,6 +101,7 @@ This is a band-aid. The real fix is one of:
 
 ## Done
 
+- [x] **Phase 1 MVP: validated on hardware.** E20C → recipe → recipe-driven UI → ASU with apk custom feed support → orb baked in → first-boot uci-defaults sets hostname, root password, Orb token, bridges both ethernet ports → device boots, auto-links to the Orb account, auto-updates enabled. End-to-end pipeline confirmed working. (commits 701f309 through 4fccae8)
 - [x] Scaffolding: MIT license, `firmware-selector/` submodule of dboze fork, GOALS.md, README, CLAUDE.md. (3f06bd3)
 - [x] Compose stack with redis + asu-server + asu-worker + selector; same-origin nginx reverse proxy so no CORS. (0171a69)
 - [x] Build Orb into images at build time via ASU's custom apk repository support, with stock OpenWrt feeds preserved (`repositories_mode: "append"`). Verified end-to-end for Radxa E20C 25.12.2 with orb 1.4.11 in the manifest. (1781217)
