@@ -161,17 +161,40 @@ defaults: |
       led_working
       sync
 
-      if dd if="$SD_DEVICE" of="$EMMC_DEVICE" bs=512 count="$count" conv=fsync 2>&1 | logger -t orb-installer; then
-          sync
+      # Run dd standalone, NOT piped to logger. Piping to logger masks
+      # dd's real exit status behind logger's, which burned us badly in
+      # the Phase 2 bring-up: dd was silently failing at install time
+      # but the pipeline reported success, the sentinel was written, the
+      # LED went solid, and we had no idea the eMMC was untouched until
+      # we tried to boot from it. Capture dd's stderr to a temp file and
+      # check its real exit status, then log the captured output.
+      local dd_log dd_status
+      dd_log=/tmp/orb-installer-dd.log
+      dd if="$SD_DEVICE" of="$EMMC_DEVICE" bs=512 count="$count" conv=fsync >"$dd_log" 2>&1
+      dd_status=$?
+      sync
+
+      # Belt-and-suspenders verification: even if dd exited 0, confirm
+      # that sector 0 of the eMMC now matches sector 0 of the SD. If it
+      # doesn't, the write silently didn't land and we should NOT mark
+      # the install successful.
+      local sd_hash emmc_hash
+      sd_hash=$(dd if="$SD_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+      emmc_hash=$(dd if="$EMMC_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+
+      if [ "$dd_status" -eq 0 ] && [ -n "$sd_hash" ] && [ "$sd_hash" = "$emmc_hash" ]; then
           touch "$SENTINEL"
           led_done
           log "install complete — SYS LED solid — safe to power off and remove SD"
+          while IFS= read -r line; do log "dd: $line"; done < "$dd_log"
+          rm -f "$dd_log"
           /etc/init.d/orb-forge-installer disable 2>/dev/null || true
           return 0
       fi
 
       led_error
-      log "ERROR: dd failed — SYS LED fast-blinking — reflash the SD card"
+      log "ERROR: install failed (dd_status=$dd_status sd_hash=$sd_hash emmc_hash=$emmc_hash) — SYS LED fast-blinking — reflash the SD card"
+      while IFS= read -r line; do log "dd: $line"; done < "$dd_log" 2>/dev/null
       return 1
   }
   ORB_INSTALLER_EOF
