@@ -28,30 +28,17 @@ defaults: |
   {{{root_password}}}
   PWEOF
 
-  # Configure a unique hostname via uci. On the Radxa E20C (and possibly
-  # other rockchip targets) /etc/config/system ships empty, so we create
-  # the system section if it doesn't exist, then set fields on it. This
-  # is the canonical OpenWrt way — procd, LuCI, and every other tool
-  # reads uci, not raw /etc/config files.
+  # Assign a unique random-tail hostname via uci so every probe is
+  # individually identifiable on a LAN. The `uci add system system`
+  # guard covers the (unlikely) case where the base image ships no
+  # [system] section at all. OpenWrt's stock init applies this to the
+  # running kernel on boot without going through the busybox `hostname`
+  # applet (which is compiled out on some rockchip targets) — verified
+  # on Radxa E20C 25.12.2.
   ORB_HOSTNAME="Orb-$((RANDOM % 10000))"
   uci -q get system.@system[0] >/dev/null || uci add system system >/dev/null
   uci set system.@system[0].hostname="$ORB_HOSTNAME"
-  uci set system.@system[0].timezone='UTC'
-  uci set system.@system[0].ttylogin='0'
-  uci set system.@system[0].log_size='64'
-  uci set system.@system[0].urandom_seed='0'
   uci commit system
-
-  # The E20C's busybox ships with the `hostname` applet compiled out,
-  # so the stock init can't apply the uci hostname to the running kernel
-  # — the prompt stays as `(none)` even with uci configured correctly.
-  # Write /proc/sys/kernel/hostname directly so gethostname(2) returns
-  # the right value for this boot. This is not a permanent fix: on the
-  # NEXT reboot the kernel hostname will reset to `(none)` again because
-  # no `hostname` binary runs during boot to reapply the uci value. The
-  # proper fix is to add `coreutils-hostname` to the recipe's packages
-  # so the normal init path works. See TODO.md.
-  echo "$ORB_HOSTNAME" > /proc/sys/kernel/hostname 2>/dev/null || true
 
   # Register Orb for automatic updates. The orb package (baked in via the
   # Orb apk feed at build time) ships /usr/bin/orb-update; `install` wires
