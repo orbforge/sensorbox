@@ -36,6 +36,9 @@ Each block is Mustache-rendered with the form inputs, then joined, then sent as 
 | field             | type   | notes                                                                 |
 |-------------------|--------|-----------------------------------------------------------------------|
 | `description`     | string | Short blurb shown next to the title.                                  |
+| `vendor_url`      | string | URL to the vendor's documentation or product page for the device. Rendered as a "Vendor docs" link in the device-info area and the download area. |
+| `docs_url`        | string | URL to the orb.net setup guide for this device (e.g. `https://orb.net/docs/devices/radxa-e20c`). Rendered as an "orb.net docs" link alongside the vendor URL. |
+| `install_notes`   | string | Markdown-formatted device-specific flashing and setup instructions, rendered via [snarkdown](https://github.com/developit/snarkdown) in the download area after a successful build. Supports **bold**, *italic*, [links](url), numbered/unordered lists, `code`, and headings. Use YAML block scalar (`\|`) for multi-line content. See the Radxa E20C recipe for an example. |
 | `version`         | string | OpenWrt version the recipe is pinned to. Sent verbatim to ASU as the build target. Pin to a version you have actually validated on the target hardware — silent regressions across OpenWrt patch releases have broken overlay formatting, driver init, and other boot-path things for specific boards in the past. |
 | `capabilities`    | object | Hardware capability flags — see below.                                |
 | `packages`        | list   | Extra packages beyond the profile defaults. `orb` is contributed by every recipe that wants Orb baked in. |
