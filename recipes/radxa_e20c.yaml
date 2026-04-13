@@ -30,6 +30,7 @@ capabilities:
 # ship without eMMC, and a single recipe covers both. If no eMMC is
 # detected, the installer skips silently.
 install:
+  hint: "Not all E20C models have eMMC. If yours doesn't, uncheck this and run from SD. Uncheck for SD-only operation (useful for validation runs or temporary deployments)."
   sd_device: /dev/mmcblk1
   emmc_device: /dev/mmcblk0
   # Partition name (as seen under /sys/class/block/) of the rootfs
