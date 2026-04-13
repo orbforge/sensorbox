@@ -54,11 +54,10 @@ install:
 
 install_notes: |
   1. Flash the downloaded image to an **SD card**.
-  2. Insert the SD card into the NanoPi R5C and connect power.
-  3. Watch the **SYS LED** while it writes to eMMC.
-  4. Once the SYS LED goes **solid**, power off and remove the SD card.
-  5. Re-insert power — the device now boots from eMMC.
-  6. Plug either ethernet port into your network.
+  2. Insert the SD card into the NanoPi R5C and connect power (no ethernet yet).
+  3. If **Install to eMMC** is enabled: watch the **SYS LED** — it pulses while writing to eMMC. Once the SYS LED goes **solid**, power off, remove the SD card, and re-insert power. The device now boots from eMMC.
+  4. If running from **SD only**: wait for boot to complete, then the device is ready.
+  5. Plug either ethernet port into your network.
 
 defaults: |
   # Bridge both ethernet ports as a single DHCP client.

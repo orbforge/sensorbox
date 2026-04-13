@@ -6,10 +6,9 @@ docs_url: "https://orb.net/docs/devices/radxa-e20c"
 install_notes: |
   1. Flash the downloaded image to an **SD card** using [balenaEtcher](https://etcher.balena.io/) or `dd`.
   2. Insert the SD card into the E20C and connect power (no ethernet yet).
-  3. Watch the **SYS LED** (small green LED near the USB-C port): it flashes rapidly during boot, then pulses slowly while writing to eMMC.
-  4. Once the SYS LED goes **solid**, power off and remove the SD card.
-  5. Re-insert power — the device now boots from eMMC.
-  6. Plug either ethernet port into your network. Both ports are bridged; either one works.
+  3. If **Install to eMMC** is enabled: watch the **SYS LED** (small green LED near the USB-C port) — it flashes rapidly during boot, then pulses slowly while writing to eMMC. Once the SYS LED goes **solid**, power off, remove the SD card, and re-insert power. The device now boots from eMMC.
+  4. If running from **SD only**: wait for the SYS LED to settle, then the device is ready.
+  5. Plug either ethernet port into your network. Both ports are bridged; either one works.
 
   **Note:** The LAN port's link LEDs (on the port itself) work normally. The WAN port's physical link LEDs do not illuminate, but the front-panel WAN LED does — this is a hardware quirk, not a fault.
 
