@@ -1,0 +1,78 @@
+id: friendlyarm_nanopi-r5c
+title: "NanoPi R5C"
+description: "Compact Orb probe with two GbE ports and an M.2 slot for optional Wi-Fi."
+vendor_url: "https://www.friendlyelec.com/index.php?route=product/product&product_id=290"
+docs_url: "https://orb.net/docs/devices/nanopi-r5c"
+
+target: rockchip/armv8
+profile: friendlyarm_nanopi-r5c
+arch: aarch64_generic
+version: "25.12.2"
+
+capabilities:
+  wifi: false  # Wi-Fi config UI (SSID/password/band) comes later; for now
+               # just module selection via options below, then manual UCI config.
+
+# Options render as dropdowns in the UI. Each choice can add packages to
+# the build. Since we use diff_packages=false, these are ADDITIONS on top
+# of the profile defaults — the profile already ships kmod-rtw88-8822ce +
+# rtl8822ce-firmware + wpad-basic-mbedtls, so the Realtek choice needs
+# nothing extra and the Intel choice just layers on Intel packages.
+options:
+  wifi_module:
+    label: "Wi-Fi Module (M.2 slot)"
+    default: none
+    choices:
+      none:
+        label: "None installed (ethernet only)"
+      realtek_rtl8822ce:
+        label: "Realtek RTL8822CE (Wi-Fi 5)"
+      intel_be200:
+        label: "Intel BE200 (Wi-Fi 7)"
+        packages:
+          - kmod-iwlwifi
+
+packages:
+  - orb
+
+repositories:
+  orb: "https://pkgs.orb.net/stable/openwrt-apk/aarch64_generic/packages.adb"
+
+repository_keys:
+  - orb-apk-ec.pub
+
+# TODO: verify on actual hardware. Copied from E20C as a starting point
+# since both are rockchip/armv8 boards with similar hardware layout.
+# LED names, eMMC device paths, and ethernet interface names may differ.
+install:
+  hint: "Uncheck for SD-only operation (useful for validation runs or temporary deployments)."
+  sd_device: /dev/mmcblk1
+  emmc_device: /dev/mmcblk0
+  size_from_partition: mmcblk1p2
+  # TODO: verify actual SYS LED name on R5C hardware
+  status_led: "green:sys"
+
+install_notes: |
+  1. Flash the downloaded image to an **SD card**.
+  2. Insert the SD card into the NanoPi R5C and connect power.
+  3. Watch the **SYS LED** while it writes to eMMC.
+  4. Once the SYS LED goes **solid**, power off and remove the SD card.
+  5. Re-insert power — the device now boots from eMMC.
+  6. Plug either ethernet port into your network.
+
+defaults: |
+  # Bridge both ethernet ports as a single DHCP client.
+  uci set network.lan.device='br-lan'
+  uci set network.lan.proto='dhcp'
+  uci -q delete network.lan.ipaddr
+  uci -q delete network.lan.netmask
+  uci set network.@device[0]=device
+  uci set network.@device[0].name='br-lan'
+  uci set network.@device[0].type='bridge'
+  uci set network.@device[0].ports='eth0 eth1'
+  uci commit network
+
+  # Remove stock WAN configuration.
+  uci -q delete network.wan
+  uci -q delete network.wan6
+  uci commit network
