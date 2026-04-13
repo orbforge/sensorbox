@@ -47,7 +47,7 @@ defaults: |
   # running kernel on boot without going through the busybox `hostname`
   # applet (which is compiled out on some rockchip targets) — verified
   # on Radxa E20C 25.12.2.
-  ORB_HOSTNAME="Orb-$((RANDOM % 10000))"
+  ORB_HOSTNAME="Orb-$(printf '%04d' $((RANDOM % 10000)))"
   uci -q get system.@system[0] >/dev/null || uci add system system >/dev/null
   uci set system.@system[0].hostname="$ORB_HOSTNAME"
   uci commit system
