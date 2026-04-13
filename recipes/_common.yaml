@@ -17,6 +17,11 @@ packages:
   # silently fails when we run it in uci-defaults on a device with no
   # internet yet. Baking it in at build time sidesteps the problem entirely.
   - micrond
+  # umdns is a lightweight mDNS responder that advertises the device's
+  # hostname as Orb-NNNN.local on the LAN. macOS resolves .local names
+  # natively, so `ssh root@orb-1234.local` works without knowing the IP
+  # or depending on the router's DNS. Much lighter than avahi-daemon.
+  - umdns
 
 defaults: |
   # Seed the Orb deployment token. The orb service reads ORB_DEPLOYMENT_TOKEN
