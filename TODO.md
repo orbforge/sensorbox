@@ -60,6 +60,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 - [ ] Live-reload recipes without a selector restart. Today the nginx entrypoint hook copies `recipes/*.yaml` from the read-only `/orb-recipes-src` bind mount into a writable `/orb-recipes` directory and generates `index.json` once at container start. Editing `recipes/` on the host requires `podman compose restart selector` to pick up changes, which is a recipe-author papercut that will bite every contributor. Options: (a) drop the copy step entirely and have nginx serve directly from the bind mount with a small dynamic index endpoint (requires nginx scripting via njs or similar); (b) re-run the index generator via inotify / fs watcher; (c) regenerate `index.json` on every HTTP request via a tiny CGI — ugly but simple; (d) document the restart as a known step in `recipes/README.md` and move on. Option (a) or (d) is probably right.
 
+## NanoPi R5C slow boot investigation
+
+- [ ] The R5C feels noticeably slow to boot compared to the E20C. Plug into HDMI and watch the full boot sequence on serial/console to identify where time is being spent — could be u-boot timeouts (waiting for a missing device), kernel driver probes (PCIe enumeration for the M.2 slot?), or a slow init service. If it's a u-boot timeout, might be fixable via boot.scr tweaks; if it's a kernel/init issue, might need investigation into which service is blocking.
+
 ## First-boot noise — cosmetic
 
 - [ ] First-boot `apk info orb` emits several "No such file or directory" warnings about missing cache for the stock OpenWrt feeds. Purely cosmetic / first-boot noise — `apk update` would fix it if the device has internet. Not worth solving unless it's making logs noisy.
