@@ -54,14 +54,14 @@ install:
   sd_device: /dev/mmcblk0
   emmc_device: /dev/mmcblk1
   size_from_partition: mmcblk0p2
-  # TODO: confirm which front-panel LED is most visible during install.
-  # Candidates: green:wan, green:lan, green:wlan. No green:sys on R5C.
-  status_led: "green:wan"
+  # red:power is the front-panel LED labeled "SYS" on the R5C case.
+  # Blinks during install, returns to solid (normal power-on state) when done.
+  status_led: "red:power"
 
 install_notes: |
   1. Flash the downloaded image to an **SD card**.
   2. Insert the SD card into the NanoPi R5C and connect power (no ethernet yet).
-  3. If **Install to eMMC** is enabled: watch the **SYS LED** — it pulses while writing to eMMC. Once the SYS LED goes **solid**, power off, remove the SD card, and re-insert power. The device now boots from eMMC.
+  3. If **Install to eMMC** is enabled: watch the red **SYS LED** — it blinks while writing to eMMC. Once the SYS LED returns to **solid** (normal power-on state), power off, remove the SD card, and re-insert power. The device now boots from eMMC.
   4. If running from **SD only**: wait for boot to complete, then the device is ready.
   5. Plug either ethernet port into your network.
 
