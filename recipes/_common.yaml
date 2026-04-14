@@ -147,28 +147,30 @@ defaults: |
       # device with no SD inserted.
       [ -b "$SD_DEVICE" ] || { log "no SD at $SD_DEVICE, skipping"; return 0; }
 
-      # Compute sector count: copy everything from sector 0 through
-      # end-of-p2, which covers the partition table, the boot partition
-      # (p1), and the ENTIRE rootfs partition (p2) — squashfs plus its
-      # trailing overlay space. Using p2's full size rather than
-      # loop0's size avoids a subtle truncation bug: if loop0 was set
-      # up with a non-zero offset into p2 (readable via /sys/block/
-      # loop0/loop/offset), the old formula (p2_start + loop0_size)
-      # missed the last `offset` bytes of the squashfs, producing
-      # "xz decompression failed" errors on eMMC boot.
+      # Compute sector count: copy ONLY the static content from sector
+      # 0 through end-of-squashfs. This covers the partition table,
+      # the boot partition (p1), and the read-only squashfs — but
+      # deliberately EXCLUDES the live overlay that occupies the tail
+      # of p2. The eMMC boots with a fresh overlay, re-runs
+      # uci-defaults, and settles into its own clean state.
       #
-      # Including the overlay tail is a small live-filesystem
-      # concession (~9 MB out of ~104 MB, and f2fs is journaled) but
-      # vastly preferable to a truncated squashfs that doesn't boot.
-      local p2_start p2_size count
+      # The squashfs may not start at byte 0 of p2 — there can be an
+      # offset (readable via /sys/block/loop0/loop/offset in bytes).
+      # The formula accounts for this: p2_start + offset_sectors +
+      # loop0_size = exact end of squashfs in disk sectors. Omitting
+      # the offset caused truncation ("xz decompression failed") on
+      # earlier attempts.
+      local p2_start loop0_offset loop0_size offset_sectors count
       p2_start=$(cat "/sys/class/block/$SIZE_PARTITION/start" 2>/dev/null)
-      p2_size=$(cat "/sys/class/block/$SIZE_PARTITION/size" 2>/dev/null)
-      if [ -z "$p2_start" ] || [ -z "$p2_size" ]; then
-          log "ERROR: could not determine copy size (p2_start=$p2_start p2_size=$p2_size)"
+      loop0_offset=$(cat /sys/block/loop0/loop/offset 2>/dev/null || echo 0)
+      loop0_size=$(cat /sys/block/loop0/size 2>/dev/null)
+      if [ -z "$p2_start" ] || [ -z "$loop0_size" ]; then
+          log "ERROR: could not determine copy size (p2_start=$p2_start loop0_size=$loop0_size)"
           led_error
           return 1
       fi
-      count=$((p2_start + p2_size))
+      offset_sectors=$(( (loop0_offset + 511) / 512 ))
+      count=$((p2_start + offset_sectors + loop0_size))
 
       log "starting SD->eMMC install: $SD_DEVICE -> $EMMC_DEVICE, $count sectors ($((count / 2048)) MiB)"
       led_working
