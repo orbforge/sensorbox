@@ -68,7 +68,7 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 - [x] Flash new R5C image with squashfs-only copy formula (813453c). SD hostname Orb-0275, eMMC hostname Orb-3762 — different, confirming fresh overlay and uci-defaults re-run. Squashfs-only copy works correctly.
 - [x] WL LED configured with `netdev` trigger (`link tx rx` on `phy0-sta0`), matching LAN/WAN behavior. Solid when associated, blinks on traffic. Verified on hardware.
-- [ ] Consider changing the "eMMC flash complete" LED signal from "SYS LED solid" (which looks the same as normal power-on) to "ALL LEDs on" — LAN, WAN, WL, SYS all lit simultaneously. Much more distinctive and impossible to confuse with normal operation. Would require the installer to iterate over all recipe-declared LEDs or just hardcode the known set per device.
+- [x] "eMMC flash complete" signal changed to ALL LEDs on via `/sys/class/leds/*` iteration. Device-agnostic, no per-recipe LED lists needed. Needs hardware verification on E20C and R5C.
 - [ ] Debug the SSH-unreachable issue seen on the last R5C test — device got a DHCP lease but couldn't be pinged or SSH'd. Resolved by power cycling without SD. Might be an installer-related I/O stall, a network config race, or a one-off fluke. Watch for it on the next test.
 
 ## NanoPi R5C slow boot investigation
