@@ -31,6 +31,13 @@ options:
         label: "Intel BE200 (Wi-Fi 7)"
         packages:
           - kmod-iwlwifi
+          - iwlwifi-firmware-be200
+          # Replace wpad-basic-mbedtls (in profile defaults) with the
+          # full version that supports WPA3/SAE and 802.11r/k/v roaming.
+          # The - prefix tells ImageBuilder to remove the basic variant.
+          - -wpad-basic-mbedtls
+          - wpad-mbedtls
+          - iw
 
 packages:
   - orb
