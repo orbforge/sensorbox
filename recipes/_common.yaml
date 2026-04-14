@@ -217,6 +217,13 @@ defaults: |
       dd_log=/tmp/orb-installer-dd.log
       dd if="$SD_DEVICE" of="$EMMC_DEVICE" bs=512 count="$count" conv=fsync >"$dd_log" 2>&1
       dd_status=$?
+
+      # Zero 1 MB past the end of the squashfs to wipe any old overlay
+      # remnants (ext4/f2fs superblocks from a previous install). Without
+      # this, mount_root finds the old data and tries to mount it as a
+      # corrupted ext4 overlay instead of formatting fresh space.
+      dd if=/dev/zero of="$EMMC_DEVICE" bs=512 seek="$count" count=2048 conv=fsync >>"$dd_log" 2>&1
+
       sync
 
       # Belt-and-suspenders verification: even if dd exited 0, confirm
