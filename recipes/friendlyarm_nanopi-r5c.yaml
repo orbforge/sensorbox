@@ -106,6 +106,7 @@ defaults: |
 
   uci set network.wwan=interface
   uci set network.wwan.proto='dhcp'
+  uci set network.wwan.metric='20'
 
   # Add wwan to the LAN firewall zone so the device is reachable
   # via SSH over Wi-Fi (not just ethernet).
