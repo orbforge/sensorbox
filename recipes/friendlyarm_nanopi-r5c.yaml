@@ -10,8 +10,7 @@ arch: aarch64_generic
 version: "25.12.2"
 
 capabilities:
-  wifi: false  # Wi-Fi config UI (SSID/password/band) comes later; for now
-               # just module selection via options below, then manual UCI config.
+  wifi: true
 
 # Options render as dropdowns in the UI. Each choice can add packages to
 # the build. Since we use diff_packages=false, these are ADDITIONS on top
@@ -82,3 +81,37 @@ defaults: |
   uci -q delete network.wan
   uci -q delete network.wan6
   uci commit network
+
+  {{#wifi_ssid}}
+  # Wi-Fi client configuration. Generate a scan_list from all
+  # supported frequencies so the radio can roam across 2.4/5/6 GHz
+  # bands. band='5g' is set to satisfy the PHY setup requirement;
+  # scan_list overrides the actual scanning behavior.
+  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | sed 's/.*\* \([0-9]*\)\..*/\1/' | tr '\n' ' ')
+
+  uci set wireless.radio0.band='5g'
+  uci set wireless.radio0.channel='auto'
+  uci set wireless.radio0.htmode='HE80'
+  uci set wireless.radio0.disabled='0'
+  uci set wireless.radio0.scan_list="$SCAN_LIST"
+
+  uci -q delete wireless.default_radio0
+  uci set wireless.sta0=wifi-iface
+  uci set wireless.sta0.device='radio0'
+  uci set wireless.sta0.mode='sta'
+  uci set wireless.sta0.network='wwan'
+  uci set wireless.sta0.ssid='{{{wifi_ssid}}}'
+  uci set wireless.sta0.encryption='psk2'
+  uci set wireless.sta0.key='{{{wifi_password}}}'
+
+  uci set network.wwan=interface
+  uci set network.wwan.proto='dhcp'
+
+  # Add wwan to the LAN firewall zone so the device is reachable
+  # via SSH over Wi-Fi (not just ethernet).
+  uci add_list firewall.@zone[0].network='wwan'
+
+  uci commit wireless
+  uci commit network
+  uci commit firewall
+  {{/wifi_ssid}}
