@@ -64,6 +64,13 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 - [ ] The installer was changed from `p2_start + p2_size` (full partition including live overlay) to `p2_start + loop0_offset/512 + loop0_size` (squashfs only, no overlay) in commit 813453c. This was validated on the R5C but needs re-testing on the E20C to confirm the offset-aware formula works on that board too. The E20C previously showed squashfs corruption errors with the old `p2_start + loop0_size` formula (no offset), so verifying the offset is the right fix is important. Also confirm the eMMC boots fresh with a new hostname (uci-defaults re-runs from the pristine squashfs).
 
+## NanoPi R5C next session
+
+- [ ] Flash new R5C image with squashfs-only copy formula (813453c). Boot from SD, SSH, note hostname. Remove SD, boot from eMMC, SSH, confirm hostname is DIFFERENT (proves fresh overlay, uci-defaults re-ran, no live-overlay copying).
+- [ ] Make the WL LED (`green:wlan` in sysfs) reflect actual wireless activity. Probably needs a uci LED config entry in the R5C recipe's defaults: `uci set system.led_wlan=led; uci set system.led_wlan.sysfs='green:wlan'; uci set system.led_wlan.trigger='phy0tpt'` or similar. Verify the right trigger name on hardware.
+- [ ] Consider changing the "eMMC flash complete" LED signal from "SYS LED solid" (which looks the same as normal power-on) to "ALL LEDs on" — LAN, WAN, WL, SYS all lit simultaneously. Much more distinctive and impossible to confuse with normal operation. Would require the installer to iterate over all recipe-declared LEDs or just hardcode the known set per device.
+- [ ] Debug the SSH-unreachable issue seen on the last R5C test — device got a DHCP lease but couldn't be pinged or SSH'd. Resolved by power cycling without SD. Might be an installer-related I/O stall, a network config race, or a one-off fluke. Watch for it on the next test.
+
 ## NanoPi R5C slow boot investigation
 
 - [ ] The R5C feels noticeably slow to boot compared to the E20C. Plug into HDMI and watch the full boot sequence on serial/console to identify where time is being spent — could be u-boot timeouts (waiting for a missing device), kernel driver probes (PCIe enumeration for the M.2 slot?), or a slow init service. If it's a u-boot timeout, might be fixable via boot.scr tweaks; if it's a kernel/init issue, might need investigation into which service is blocking.
