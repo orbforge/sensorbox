@@ -245,4 +245,10 @@ defaults: |
   ORB_INSTALLER_EOF
   chmod +x /etc/init.d/orb-forge-installer
   /etc/init.d/orb-forge-installer enable
+  # Invoke directly — procd may have already iterated past START=20
+  # by the time uci-defaults created this service, so we can't rely
+  # on it being picked up in the same boot cycle. Backgrounded so
+  # uci-defaults can exit 0 and be deleted. The service stays enabled
+  # as a fallback for retry on next boot if this invocation fails.
+  /etc/rc.common /etc/init.d/orb-forge-installer boot &
   {{/install_to_emmc}}
