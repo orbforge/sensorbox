@@ -33,8 +33,8 @@ else
     read -rp "Image filename (or substring): " IMAGE_PATTERN
 fi
 
-# Search for matching image in the store
-IMAGE_PATH=$(find "$STORE_DIR" -name "*${IMAGE_PATTERN}*" -type f 2>/dev/null | head -1)
+# Search for matching image in the store, newest first
+IMAGE_PATH=$(find "$STORE_DIR" -name "*${IMAGE_PATTERN}*" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
 [[ -n "$IMAGE_PATH" ]] || die "No image matching '$IMAGE_PATTERN' found in $STORE_DIR"
 
 IMAGE_NAME=$(basename "$IMAGE_PATH")
