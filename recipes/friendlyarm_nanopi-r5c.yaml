@@ -111,12 +111,14 @@ defaults: |
   # via SSH over Wi-Fi (not just ethernet).
   uci add_list firewall.@zone[0].network='wwan'
 
-  # WL LED — blink on Wi-Fi receive activity, matching the LAN/WAN
-  # LEDs' traffic-flash behavior.
+  # WL LED — same netdev trigger as LAN/WAN: solid when associated,
+  # blinks on tx/rx traffic.
   uci set system.led_wlan=led
   uci set system.led_wlan.name='WLAN'
   uci set system.led_wlan.sysfs='green:wlan'
-  uci set system.led_wlan.trigger='phy0rx'
+  uci set system.led_wlan.trigger='netdev'
+  uci set system.led_wlan.dev='phy0-sta0'
+  uci set system.led_wlan.mode='link tx rx'
 
   uci commit wireless
   uci commit network
