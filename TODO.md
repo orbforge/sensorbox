@@ -71,6 +71,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [x] "eMMC flash complete" signal changed to ALL LEDs pulsing (timer trigger, 500ms, re-applied every 2s to fight LED service override). Device-agnostic via `/sys/class/leds/*` iteration. Verified on both E20C (green:heartbeat + green:lan + green:wan all pulse) and R5C.
 - [ ] Debug the SSH-unreachable issue seen on the last R5C test — device got a DHCP lease but couldn't be pinged or SSH'd. Resolved by power cycling without SD. Might be an installer-related I/O stall, a network config race, or a one-off fluke. Watch for it on the next test.
 
+## NanoPi R5C CPU frequency cap for thermal management
+
+- [ ] The R5C runs hot in its enclosed case. The RK3568 maxes at 1992 MHz but an Orb probe doesn't need that except possibly during speed tests. Current governor is `schedutil` (good — dynamic scaling). Available frequencies: 408, 600, 816, 1104, 1416, 1608, 1800, 1992 MHz. Plan: cap `scaling_max_freq` to a lower value (1416 MHz or 1104 MHz) via the recipe's defaults. Need to validate with 2.5 Gbps speed testing first to find the right balance between thermals and test throughput. Add to the R5C recipe as a sysfs write in uci-defaults once the cap is chosen.
+
 ## NanoPi R5C slow boot investigation
 
 - [ ] The R5C feels noticeably slow to boot compared to the E20C. Plug into HDMI and watch the full boot sequence on serial/console to identify where time is being spent — could be u-boot timeouts (waiting for a missing device), kernel driver probes (PCIe enumeration for the M.2 slot?), or a slow init service. If it's a u-boot timeout, might be fixable via boot.scr tweaks; if it's a kernel/init issue, might need investigation into which service is blocking.
