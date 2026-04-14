@@ -47,16 +47,16 @@ repositories:
 repository_keys:
   - orb-apk-ec.pub
 
-# TODO: verify on actual hardware. Copied from E20C as a starting point
-# since both are rockchip/armv8 boards with similar hardware layout.
-# LED names, eMMC device paths, and ethernet interface names may differ.
+# Verified on hardware: R5C's device mapping is the REVERSE of the E20C.
+# mmcblk0 = SD card (no boot0/boot1), mmcblk1 = eMMC (has boot0/boot1).
 install:
   hint: "Uncheck for SD-only operation (useful for validation runs or temporary deployments)."
-  sd_device: /dev/mmcblk1
-  emmc_device: /dev/mmcblk0
-  size_from_partition: mmcblk1p2
-  # TODO: verify actual SYS LED name on R5C hardware
-  status_led: "green:sys"
+  sd_device: /dev/mmcblk0
+  emmc_device: /dev/mmcblk1
+  size_from_partition: mmcblk0p2
+  # TODO: confirm which front-panel LED is most visible during install.
+  # Candidates: green:wan, green:lan, green:wlan. No green:sys on R5C.
+  status_led: "green:wan"
 
 install_notes: |
   1. Flash the downloaded image to an **SD card**.
