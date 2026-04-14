@@ -101,7 +101,7 @@ defaults: |
   uci set wireless.sta0.mode='sta'
   uci set wireless.sta0.network='wwan'
   uci set wireless.sta0.ssid='{{{wifi_ssid}}}'
-  uci set wireless.sta0.encryption='psk2'
+  uci set wireless.sta0.encryption='{{{wifi_encryption}}}'
   uci set wireless.sta0.key='{{{wifi_password}}}'
 
   uci set network.wwan=interface
