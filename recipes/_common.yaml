@@ -172,6 +172,24 @@ defaults: |
 
       log "starting SD->eMMC install: $SD_DEVICE -> $EMMC_DEVICE, $count sectors ($((count / 2048)) MiB)"
       led_working
+
+      # Zero the eMMC's hardware boot partitions (boot0/boot1) if they
+      # exist. Some boards (e.g. NanoPi R5C) ship with a factory Armbian
+      # SPL in boot0 that the Rockchip BROM loads first, overriding our
+      # OpenWrt SPL in the main area. Zeroing forces the BROM to fall
+      # through to the main area where our dd'd content lives. The
+      # partitions are read-only by default; force_ro must be cleared.
+      # Harmless on boards where boot partitions don't exist or are empty.
+      for bp in "${EMMC_DEVICE}boot0" "${EMMC_DEVICE}boot1"; do
+          [ -b "$bp" ] || continue
+          local ro_path="/sys/class/block/$(basename $bp)/force_ro"
+          if [ -f "$ro_path" ]; then
+              echo 0 > "$ro_path" 2>/dev/null || true
+          fi
+          dd if=/dev/zero of="$bp" bs=512 count=8192 >/dev/null 2>&1 || true
+          log "zeroed $bp"
+      done
+
       sync
 
       # Run dd standalone, NOT piped to logger. Piping to logger masks
