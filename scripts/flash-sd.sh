@@ -21,22 +21,30 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 # Find the image
 if [[ $# -ge 1 ]]; then
-    IMAGE_PATTERN="$1"
+    # Direct substring match, newest first
+    IMAGE_PATH=$(find "$STORE_DIR" -name "*${1}*" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+    [[ -n "$IMAGE_PATH" ]] || die "No image matching '$1' found in $STORE_DIR"
 else
-    # List available squashfs images across all build dirs, newest first
-    echo "Available images:"
-    echo
-    find "$STORE_DIR" -name '*squashfs-sysupgrade.img.gz' -type f | xargs ls -t 2>/dev/null | while read -r f; do
+    # Build a list of squashfs images, newest first, with timestamps
+    IMAGE_LIST=$(find "$STORE_DIR" -name '*squashfs-sysupgrade.img.gz' -type f | xargs ls -t 2>/dev/null | while read -r f; do
         ts=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$f")
-        echo "  [$ts]  $(basename "$f")"
-    done
-    echo
-    read -rp "Image filename (or substring): " IMAGE_PATTERN
-fi
+        echo "[$ts]  $(basename "$f")|$f"
+    done)
+    [[ -n "$IMAGE_LIST" ]] || die "No images found in $STORE_DIR"
 
-# Search for matching image in the store, newest first
-IMAGE_PATH=$(find "$STORE_DIR" -name "*${IMAGE_PATTERN}*" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
-[[ -n "$IMAGE_PATH" ]] || die "No image matching '$IMAGE_PATTERN' found in $STORE_DIR"
+    if command -v fzf >/dev/null 2>&1; then
+        SELECTION=$(echo "$IMAGE_LIST" | cut -d'|' -f1 | fzf --height=15 --reverse --prompt="Select image: ") || die "No image selected"
+        IMAGE_PATH=$(echo "$IMAGE_LIST" | grep -F "$SELECTION" | head -1 | cut -d'|' -f2)
+    else
+        echo "Available images (newest first):"
+        echo
+        echo "$IMAGE_LIST" | cut -d'|' -f1 | cat -n
+        echo
+        read -rp "Enter number: " NUM
+        IMAGE_PATH=$(echo "$IMAGE_LIST" | sed -n "${NUM}p" | cut -d'|' -f2)
+    fi
+    [[ -n "$IMAGE_PATH" ]] || die "Invalid selection"
+fi
 
 IMAGE_NAME=$(basename "$IMAGE_PATH")
 echo "Image: $IMAGE_NAME"
