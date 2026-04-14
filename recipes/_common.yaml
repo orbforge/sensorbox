@@ -120,12 +120,19 @@ defaults: |
   }
 
   led_done() {
-      # Turn ALL LEDs on — unmistakable "install complete" signal that
-      # can't be confused with normal operation. Iterates every LED in
-      # sysfs regardless of device; harmless on LEDs we don't control.
-      for led in /sys/class/leds/*/; do
-          echo none > "${led}trigger" 2>/dev/null || true
-          echo 255 > "${led}brightness" 2>/dev/null || true
+      # Pulse ALL LEDs in unison — unmistakable "install complete"
+      # signal. Loops forever re-applying the timer trigger every 2s
+      # to fight the system LED service which runs later in boot and
+      # would otherwise override our triggers. The loop blocks boot()
+      # from returning, but that's fine — sentinel and disable happen
+      # before this is called, and the user is about to power off.
+      while true; do
+          for led in /sys/class/leds/*/; do
+              echo timer > "${led}trigger" 2>/dev/null || true
+              echo 500 > "${led}delay_on" 2>/dev/null || true
+              echo 500 > "${led}delay_off" 2>/dev/null || true
+          done
+          sleep 2
       done
   }
 
@@ -221,13 +228,13 @@ defaults: |
       emmc_hash=$(dd if="$EMMC_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
 
       if [ "$dd_status" -eq 0 ] && [ -n "$sd_hash" ] && [ "$sd_hash" = "$emmc_hash" ]; then
+          # Finalize BEFORE led_done — it loops forever and never returns.
           touch "$SENTINEL"
-          led_done
-          log "install complete — SYS LED solid — safe to power off and remove SD"
+          /etc/init.d/orb-forge-installer disable 2>/dev/null || true
+          log "install complete — all LEDs pulsing — safe to power off and remove SD"
           while IFS= read -r line; do log "dd: $line"; done < "$dd_log"
           rm -f "$dd_log"
-          /etc/init.d/orb-forge-installer disable 2>/dev/null || true
-          return 0
+          led_done  # never returns — pulses all LEDs until power-off
       fi
 
       led_error
