@@ -66,7 +66,7 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 ## NanoPi R5C next session
 
-- [ ] Flash new R5C image with squashfs-only copy formula (813453c). Boot from SD, SSH, note hostname. Remove SD, boot from eMMC, SSH, confirm hostname is DIFFERENT (proves fresh overlay, uci-defaults re-ran, no live-overlay copying).
+- [x] Flash new R5C image with squashfs-only copy formula (813453c). SD hostname Orb-0275, eMMC hostname Orb-3762 — different, confirming fresh overlay and uci-defaults re-run. Squashfs-only copy works correctly.
 - [ ] Make the WL LED (`green:wlan` in sysfs) reflect actual wireless activity. Probably needs a uci LED config entry in the R5C recipe's defaults: `uci set system.led_wlan=led; uci set system.led_wlan.sysfs='green:wlan'; uci set system.led_wlan.trigger='phy0tpt'` or similar. Verify the right trigger name on hardware.
 - [ ] Consider changing the "eMMC flash complete" LED signal from "SYS LED solid" (which looks the same as normal power-on) to "ALL LEDs on" — LAN, WAN, WL, SYS all lit simultaneously. Much more distinctive and impossible to confuse with normal operation. Would require the installer to iterate over all recipe-declared LEDs or just hardcode the known set per device.
 - [ ] Debug the SSH-unreachable issue seen on the last R5C test — device got a DHCP lease but couldn't be pinged or SSH'd. Resolved by power cycling without SD. Might be an installer-related I/O stall, a network config race, or a one-off fluke. Watch for it on the next test.
