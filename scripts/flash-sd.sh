@@ -23,12 +23,13 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 if [[ $# -ge 1 ]]; then
     IMAGE_PATTERN="$1"
 else
-    # List available squashfs images across all build dirs
+    # List available squashfs images across all build dirs, newest first
     echo "Available images:"
     echo
-    find "$STORE_DIR" -name '*squashfs-sysupgrade.img.gz' -newer "$STORE_DIR" -o -name '*squashfs-sysupgrade.img.gz' | sort -t/ -k6 | while read -r f; do
-        echo "  $(basename "$f")"
-    done | sort -u
+    find "$STORE_DIR" -name '*squashfs-sysupgrade.img.gz' -type f | xargs ls -t 2>/dev/null | while read -r f; do
+        ts=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$f")
+        echo "  [$ts]  $(basename "$f")"
+    done
     echo
     read -rp "Image filename (or substring): " IMAGE_PATTERN
 fi
