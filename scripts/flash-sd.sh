@@ -2,30 +2,30 @@
 # Flash an orb-forge image to an SD card for local development testing.
 #
 # Usage:
-#   ./scripts/flash-sd.sh <image-filename>
-#   ./scripts/flash-sd.sh    (lists available images and prompts)
+#   ./scripts/flash-sd.sh <image-substring>
+#   ./scripts/flash-sd.sh    (interactive selection of image + disk)
 #
 # The image is expected to be in public/store/*/. The script finds it
 # by filename across all build hash directories.
+#
+# Requires: fzf (brew install fzf) for interactive selection, or
+# falls back to numbered menus.
 
 set -euo pipefail
 
 STORE_DIR="$(cd "$(dirname "$0")/.." && pwd)/public/store"
-SD_DISK="/dev/disk8"
-SD_RDISK="/dev/rdisk8"
 LOCAL_DIR="/tmp/orb-forge-flash"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
 [[ "$(uname)" == "Darwin" ]] || die "This script is for macOS only"
 
-# Find the image
+# --- Image selection ---
+
 if [[ $# -ge 1 ]]; then
-    # Direct substring match, newest first
     IMAGE_PATH=$(find "$STORE_DIR" -name "*${1}*" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
     [[ -n "$IMAGE_PATH" ]] || die "No image matching '$1' found in $STORE_DIR"
 else
-    # Build a list of squashfs images, newest first, with timestamps
     IMAGE_LIST=$(find "$STORE_DIR" -name '*squashfs-sysupgrade.img.gz' -type f | xargs ls -t 2>/dev/null | while read -r f; do
         ts=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$f")
         echo "[$ts]  $(basename "$f")|$f"
@@ -48,12 +48,57 @@ fi
 
 IMAGE_NAME=$(basename "$IMAGE_PATH")
 echo "Image: $IMAGE_NAME"
-echo "  From: $IMAGE_PATH"
 
-# Verify SD card is present
-diskutil info "$SD_DISK" >/dev/null 2>&1 || die "SD card not found at $SD_DISK — check 'diskutil list' and update SD_DISK in this script"
+# --- Disk selection ---
 
-echo "Target: $SD_DISK ($(diskutil info -plist "$SD_DISK" | plutil -extract Size raw -) bytes)"
+# Build a list of external/removable disks (skip internal disks).
+# Shows device name, size, and media name for easy identification.
+select_disk() {
+    local DISK_LIST=""
+    for disk in /dev/disk[0-9]*; do
+        # Skip partition entries (disk0s1, etc.)
+        [[ "$disk" =~ s[0-9]+$ ]] && continue
+        # Only consider whole disks
+        local info
+        info=$(diskutil info -plist "$disk" 2>/dev/null) || continue
+        local removable size_bytes size_gb name protocol
+        removable=$(echo "$info" | plutil -extract Removable raw - 2>/dev/null || echo "false")
+        # Also check if it's external (USB/SD readers may not report as removable)
+        local ejectable
+        ejectable=$(echo "$info" | plutil -extract Ejectable raw - 2>/dev/null || echo "false")
+        [[ "$removable" == "true" || "$ejectable" == "true" ]] || continue
+        size_bytes=$(echo "$info" | plutil -extract Size raw - 2>/dev/null || echo 0)
+        size_gb=$(( size_bytes / 1073741824 ))
+        name=$(echo "$info" | plutil -extract MediaName raw - 2>/dev/null || echo "Unknown")
+        protocol=$(echo "$info" | plutil -extract BusProtocol raw - 2>/dev/null || echo "")
+        DISK_LIST+="${disk}  ${size_gb}GB  ${name}  (${protocol})|${disk}"$'\n'
+    done
+
+    [[ -n "$DISK_LIST" ]] || die "No removable/external disks found. Insert an SD card and try again."
+
+    local selected_disk
+    if command -v fzf >/dev/null 2>&1; then
+        local selection
+        selection=$(echo "$DISK_LIST" | cut -d'|' -f1 | fzf --height=10 --reverse --prompt="Select target disk: ") || die "No disk selected"
+        selected_disk=$(echo "$DISK_LIST" | grep -F "$selection" | head -1 | cut -d'|' -f2)
+    else
+        echo "Removable disks:"
+        echo
+        echo "$DISK_LIST" | cut -d'|' -f1 | cat -n
+        echo
+        read -rp "Enter number: " NUM
+        selected_disk=$(echo "$DISK_LIST" | sed -n "${NUM}p" | cut -d'|' -f2)
+    fi
+
+    [[ -n "$selected_disk" ]] || die "Invalid selection"
+    echo "$selected_disk"
+}
+
+SD_DISK=$(select_disk)
+SD_RDISK="${SD_DISK/disk/rdisk}"
+
+echo "Target: $SD_DISK"
+diskutil info "$SD_DISK" | grep -E 'Device / Media Name|Disk Size|Protocol' | sed 's/^/  /'
 echo
 echo "This will ERASE $SD_DISK. Press Enter to continue or Ctrl-C to abort."
 read -r
