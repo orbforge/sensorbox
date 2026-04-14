@@ -226,6 +226,15 @@ defaults: |
 
       sync
 
+      # Randomize the eMMC's MBR disk signature (4 bytes at offset 440)
+      # so its PARTUUID differs from the SD's. Without this, both devices
+      # have PARTUUID=5452574f-02 (OpenWrt's default "OWRT" signature),
+      # the kernel finds the eMMC first during enumeration, and all
+      # subsequent "SD boots" actually boot from eMMC. boot.scr reads
+      # the PARTUUID dynamically via `part uuid`, so changing the
+      # signature is all that's needed — no boot.scr patching required.
+      head -c4 /dev/urandom | dd of="$EMMC_DEVICE" bs=1 seek=440 conv=notrunc >>"$dd_log" 2>&1
+
       # Belt-and-suspenders verification: even if dd exited 0, confirm
       # that sector 0 of the eMMC now matches sector 0 of the SD. If it
       # doesn't, the write silently didn't land and we should NOT mark
