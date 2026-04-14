@@ -60,6 +60,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 - [ ] Live-reload recipes without a selector restart. Today the nginx entrypoint hook copies `recipes/*.yaml` from the read-only `/orb-recipes-src` bind mount into a writable `/orb-recipes` directory and generates `index.json` once at container start. Editing `recipes/` on the host requires `podman compose restart selector` to pick up changes, which is a recipe-author papercut that will bite every contributor. Options: (a) drop the copy step entirely and have nginx serve directly from the bind mount with a small dynamic index endpoint (requires nginx scripting via njs or similar); (b) re-run the index generator via inotify / fs watcher; (c) regenerate `index.json` on every HTTP request via a tiny CGI — ugly but simple; (d) document the restart as a known step in `recipes/README.md` and move on. Option (a) or (d) is probably right.
 
+## Re-test E20C eMMC installer with squashfs-only copy formula
+
+- [ ] The installer was changed from `p2_start + p2_size` (full partition including live overlay) to `p2_start + loop0_offset/512 + loop0_size` (squashfs only, no overlay) in commit 813453c. This was validated on the R5C but needs re-testing on the E20C to confirm the offset-aware formula works on that board too. The E20C previously showed squashfs corruption errors with the old `p2_start + loop0_size` formula (no offset), so verifying the offset is the right fix is important. Also confirm the eMMC boots fresh with a new hostname (uci-defaults re-runs from the pristine squashfs).
+
 ## NanoPi R5C slow boot investigation
 
 - [ ] The R5C feels noticeably slow to boot compared to the E20C. Plug into HDMI and watch the full boot sequence on serial/console to identify where time is being spent — could be u-boot timeouts (waiting for a missing device), kernel driver probes (PCIe enumeration for the M.2 slot?), or a slow init service. If it's a u-boot timeout, might be fixable via boot.scr tweaks; if it's a kernel/init issue, might need investigation into which service is blocking.
