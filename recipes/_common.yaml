@@ -120,8 +120,13 @@ defaults: |
   }
 
   led_done() {
-      led_write trigger none
-      led_write brightness 255
+      # Turn ALL LEDs on — unmistakable "install complete" signal that
+      # can't be confused with normal operation. Iterates every LED in
+      # sysfs regardless of device; harmless on LEDs we don't control.
+      for led in /sys/class/leds/*/; do
+          echo none > "${led}trigger" 2>/dev/null || true
+          echo 255 > "${led}brightness" 2>/dev/null || true
+      done
   }
 
   led_error() {
