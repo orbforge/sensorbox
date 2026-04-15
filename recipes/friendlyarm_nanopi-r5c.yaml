@@ -92,6 +92,7 @@ defaults: |
   uci set wireless.radio0.band='5g'
   uci set wireless.radio0.channel='auto'
   uci set wireless.radio0.htmode='HE80'
+  uci set wireless.radio0.country='{{{wifi_country}}}'
   uci set wireless.radio0.disabled='0'
   uci set wireless.radio0.scan_list="$SCAN_LIST"
 
