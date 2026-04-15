@@ -129,6 +129,24 @@ defaults: |
   uci set system.led_wlan.dev='phy0-sta0'
   uci set system.led_wlan.mode='link tx rx'
 
+  # OpenWrt's UCI doesn't pass bgscan to wpa_supplicant. Create a
+  # hotplug script that injects it after every wwan ifup so the
+  # supplicant does background scans and roams across bands.
+  mkdir -p /etc/hotplug.d/iface
+  cat > /etc/hotplug.d/iface/99-bgscan <<'BGSCAN_HOOK'
+  #!/bin/sh
+  [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
+  sleep 3
+  CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
+  [ -f "$CONF" ] || exit 0
+  grep -q 'bgscan=' "$CONF" && exit 0
+  sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
+  killall wpa_supplicant 2>/dev/null
+  sleep 1
+  wpa_supplicant -B -i phy0-sta0 -c "$CONF" -D nl80211
+  BGSCAN_HOOK
+  chmod +x /etc/hotplug.d/iface/99-bgscan
+
   uci commit wireless
   uci commit network
   uci commit firewall
