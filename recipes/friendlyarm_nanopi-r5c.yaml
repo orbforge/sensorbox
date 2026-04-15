@@ -83,17 +83,24 @@ defaults: |
   uci commit network
 
   {{#wifi_ssid}}
-  # Wi-Fi client configuration. Generate a scan_list from all
-  # supported frequencies so the radio can roam across 2.4/5/6 GHz
-  # bands. band='5g' is set to satisfy the PHY setup requirement;
-  # scan_list overrides the actual scanning behavior.
-  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | sed 's/.*\* \([0-9]*\)\..*/\1/' | tr '\n' ' ')
-
+  # Wi-Fi client configuration.
+  #
+  # Set country FIRST and reload the radio so the driver activates
+  # the correct regulatory channels. Without this, iw phy doesn't
+  # report 6 GHz frequencies and the scan_list misses them entirely.
   uci set wireless.radio0.band='5g'
   uci set wireless.radio0.channel='auto'
   uci set wireless.radio0.htmode='HE80'
   uci set wireless.radio0.country='{{{wifi_country}}}'
   uci set wireless.radio0.disabled='0'
+  uci commit wireless
+  wifi reload 2>/dev/null; sleep 2
+
+  # NOW generate the scan_list with the correct regulatory domain
+  # active. This captures 2.4/5/6 GHz frequencies so the radio can
+  # roam across all bands. band='5g' satisfies the PHY setup
+  # requirement; scan_list overrides the actual scanning behavior.
+  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | sed 's/.*\* \([0-9]*\)\..*/\1/' | tr '\n' ' ')
   uci set wireless.radio0.scan_list="$SCAN_LIST"
 
   uci -q delete wireless.default_radio0
