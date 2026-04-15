@@ -36,6 +36,7 @@ options:
           # The - prefix tells ImageBuilder to remove the basic variant.
           - -wpad-basic-mbedtls
           - wpad-mbedtls
+          - wpa-cli
           - iw
 
 packages:
@@ -132,6 +133,9 @@ defaults: |
   # OpenWrt's UCI doesn't pass bgscan to wpa_supplicant. Create a
   # hotplug script that injects it after every wwan ifup so the
   # supplicant does background scans and roams across bands.
+  # OpenWrt's UCI doesn't support bgscan. Inject it via a hotplug
+  # script that patches the wpa_supplicant config on every wwan ifup
+  # and tells wpa_supplicant to reload gracefully via wpa_cli.
   mkdir -p /etc/hotplug.d/iface
   cat > /etc/hotplug.d/iface/99-bgscan <<'BGSCAN_HOOK'
   #!/bin/sh
@@ -141,9 +145,7 @@ defaults: |
   [ -f "$CONF" ] || exit 0
   grep -q 'bgscan=' "$CONF" && exit 0
   sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
-  killall wpa_supplicant 2>/dev/null
-  sleep 1
-  wpa_supplicant -B -i phy0-sta0 -c "$CONF" -D nl80211
+  wpa_cli -i phy0-sta0 reconfigure 2>/dev/null
   BGSCAN_HOOK
   chmod +x /etc/hotplug.d/iface/99-bgscan
 
