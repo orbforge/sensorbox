@@ -100,7 +100,7 @@ defaults: |
   # active. This captures 2.4/5/6 GHz frequencies so the radio can
   # roam across all bands. band='5g' satisfies the PHY setup
   # requirement; scan_list overrides the actual scanning behavior.
-  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | sed 's/.*\* \([0-9]*\)\..*/\1/' | tr '\n' ' ')
+  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | awk '{print int($2)}' | tr '\n' ' ')
   uci set wireless.radio0.scan_list="$SCAN_LIST"
 
   uci -q delete wireless.default_radio0
