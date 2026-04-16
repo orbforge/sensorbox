@@ -40,6 +40,7 @@ elif [ ! -f .config ]; then
 fi
 
 log "Starting build (this takes ~45 minutes)..."
+export FORCE_UNSAFE_CONFIGURE=1
 make -j"$(nproc)" V=s
 
 # Find the ImageBuilder tarball
