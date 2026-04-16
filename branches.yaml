@@ -2,23 +2,21 @@
 # from source (not available from downloads.openwrt.org).
 #
 # Loaded by ASU at startup via the BRANCHES_FILE env var. Entries are
-# merged into ASU's hardcoded settings.branches dict. Each entry makes
-# ASU accept build requests for that version string.
+# merged into ASU's hardcoded settings.branches dict.
 #
-# The matching ImageBuilder container must be pre-built and available
-# in the local Podman image store with the tag ASU expects:
-#   {BASE_CONTAINER}:{target}-openwrt-{branch_name}
-#
-# For the NanoPi Zero2 on rockchip/armv8:
-#   ghcr.io/openwrt/imagebuilder:rockchip-armv8-openwrt-zero2
-#
-# Build the ImageBuilder from dboze/openwrt (pm-domains-fix branch)
-# using openwrt-builder/build.sh, then tag the result accordingly.
-# Podman checks local images before pulling from ghcr.io, so the
-# local image takes priority over any remote.
+# Branches with a `builder` section are managed by the openwrt-builder
+# service. The builder checks the fork's HEAD commit against the
+# existing container's label and only rebuilds when stale.
 
 zero2:
   path: "releases/{version}"
   enabled: true
   snapshot: false
   package_changes: []
+  # Builder config — used by the openwrt-builder service to know
+  # how to build the ImageBuilder for this branch.
+  builder:
+    repo: "https://github.com/dboze/openwrt"
+    branch: "pm-domains-fix"
+    target: "rockchip/armv8"
+    defconfig: "zero2.defconfig"
