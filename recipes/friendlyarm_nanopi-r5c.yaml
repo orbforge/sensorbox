@@ -153,4 +153,10 @@ defaults: |
   uci commit network
   uci commit firewall
   uci commit system
+
+  # Second wifi reload — the first one (above) applied the country
+  # so iw phy would report 6 GHz frequencies for the scan_list. But
+  # that reload happened before sta0/scan_list/bgscan were configured.
+  # This reload applies the full config including the station interface.
+  wifi reload 2>/dev/null
   {{/wifi_ssid}}
