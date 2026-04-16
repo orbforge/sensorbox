@@ -18,7 +18,7 @@
 # local image takes priority over any remote.
 
 zero2:
-  path: "snapshots"
+  path: "releases/{version}"
   enabled: true
-  snapshot: true
+  snapshot: false
   package_changes: []

@@ -1,4 +1,30 @@
 services:
+  # Builds a custom OpenWrt ImageBuilder from source for devices not
+  # in stock OpenWrt (e.g. NanoPi Zero2). Checks if the existing
+  # ImageBuilder container is up-to-date (by commit hash label) and
+  # only rebuilds when the fork has new commits. Runs once on
+  # `compose up`, takes ~45 min for a full build, exits when done.
+  # Set OPENWRT_BUILDER_ENABLED=false in .env to skip entirely.
+  openwrt-builder:
+    build:
+      context: ./openwrt-builder
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      OPENWRT_REPO: "https://github.com/dboze/openwrt"
+      OPENWRT_BRANCH: "pm-domains-fix"
+      OPENWRT_TARGET: "rockchip/armv8"
+      IMAGEBUILDER_TAG: "ghcr.io/openwrt/imagebuilder:rockchip-armv8-openwrt-zero2"
+      CONTAINER_SOCKET_PATH: ${CONTAINER_SOCKET_PATH}
+    volumes:
+      - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
+      - ./openwrt-builder/defconfig:/builder-config/defconfig:ro
+      - openwrt-build-cache:/cache:rw
+    security_opt:
+      - label=disable
+    profiles:
+      - builder
+
   redis:
     image: docker.io/redis/redis-stack-server
     restart: unless-stopped
@@ -68,3 +94,9 @@ services:
       - "127.0.0.1:8080:80"
     depends_on:
       - asu-server
+
+volumes:
+  # Persistent cache for the OpenWrt buildroot source tree and build
+  # artifacts. Survives container recreation so incremental builds
+  # only recompile what changed. ~5 GB when populated.
+  openwrt-build-cache:
