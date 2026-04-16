@@ -110,6 +110,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - **Recipe source of truth**: YAML files in `recipes/`, fetched and parsed at runtime in the browser via vendored `js-yaml`. No build step, no preprocessor.
 - **Templating**: Mustache.js, vendored into the fork. Logic-less on purpose — forces recipe authors to keep templates simple.
 
+## Upstream PRs to submit
+
+- [ ] **openwrt/asu: re-implement branches_file for FastAPI.** PR #409 (by aparcar, 2022) implemented BRANCHES_FILE loading for the Flask-era ASU, but the loading code was lost during the Flask→FastAPI migration. The config setting (`branches_file`) survived but nothing reads it. We re-implemented it on our orb-patches branch (~15 lines in main.py). Submit a PR to openwrt/asu to restore this feature upstream. Reference PR #409 in the description. When merged, our orb-patches branch delta shrinks.
+
 ## Cross-cutting / ongoing
 
 - [ ] Track upstream ASU PR #1590 via the scheduled remote trigger at https://claude.ai/code/scheduled/trig_01QQw8LgQs5KLPTGdhkEQCia. When it merges, follow the action section: switch the `asu/` submodule URL from `dboze/asu` back to `openwrt/asu`, delete the fork, delete the trigger.

@@ -1,0 +1,24 @@
+# Custom branches for orb-forge devices that need ImageBuilders built
+# from source (not available from downloads.openwrt.org).
+#
+# Loaded by ASU at startup via the BRANCHES_FILE env var. Entries are
+# merged into ASU's hardcoded settings.branches dict. Each entry makes
+# ASU accept build requests for that version string.
+#
+# The matching ImageBuilder container must be pre-built and available
+# in the local Podman image store with the tag ASU expects:
+#   {BASE_CONTAINER}:{target}-openwrt-{branch_name}
+#
+# For the NanoPi Zero2 on rockchip/armv8:
+#   ghcr.io/openwrt/imagebuilder:rockchip-armv8-openwrt-zero2
+#
+# Build the ImageBuilder from dboze/openwrt (pm-domains-fix branch)
+# using openwrt-builder/build.sh, then tag the result accordingly.
+# Podman checks local images before pulling from ghcr.io, so the
+# local image takes priority over any remote.
+
+zero2:
+  path: "snapshots"
+  enabled: true
+  snapshot: true
+  package_changes: []

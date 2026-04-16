@@ -24,6 +24,7 @@ services:
     volumes:
       - ${PUBLIC_PATH}/store:${PUBLIC_PATH}/store:ro
       - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
+      - ./branches.yaml:/app/branches.yaml:ro
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
