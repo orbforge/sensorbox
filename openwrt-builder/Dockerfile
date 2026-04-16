@@ -8,7 +8,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git curl python3 python3-pip python3-venv ca-certificates \
         build-essential gawk unzip file wget python3-distutils rsync \
-        libncurses-dev zlib1g-dev xz-utils libelf-dev && \
+        libncurses-dev zlib1g-dev xz-utils libelf-dev \
+        python3-pyelftools swig && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Python deps for the API
