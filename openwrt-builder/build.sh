@@ -60,9 +60,8 @@ log "Building container image: $IMAGEBUILDER_TAG"
 BUILD_DIR="$CACHE_DIR/ib-container"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
-cp "$IB_TARBALL" "$BUILD_DIR/imagebuilder.tar.xz"
-
 IB_BASENAME=$(basename "$IB_TARBALL")
+cp "$IB_TARBALL" "$BUILD_DIR/$IB_BASENAME"
 
 cat > "$BUILD_DIR/Containerfile" <<CEOF
 FROM docker.io/library/debian:bookworm-slim
