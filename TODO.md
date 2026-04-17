@@ -51,6 +51,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [ ] CI job (GitHub Actions?) that rebuilds the custom ImageBuilder on each update to the patches or DTS.
 - [ ] When PR #22707 merges upstream, drop the custom path for this device and fall back to stock ImageBuilder.
 
+## Hostname collision reduction
+
+- [ ] Switch hostname from `Orb-$(printf '%04d' $((RANDOM % 10000)))` (10,000 possible values) to hexadecimal, e.g. `Orb-$(head -c2 /dev/urandom | od -An -tx1 | tr -d ' ')` (65,536 possible values) or 3 hex bytes (16.7M values). At 3,000 devices (e.g. cruise ship deployment), the birthday paradox gives ~36% collision probability with 4-digit decimal but ~2.6% with 4-digit hex. Consider whether the hostname format should also include a device-type prefix for fleet identification.
+
 ## Form UX improvements
 
 - [ ] **Confirm Root Password field.** Add a second password input ("Confirm Root Password") below the existing Root Password field and validate on submit that the two values match. Without this, a typo in the root password goes completely unnoticed until the user tries to SSH in and realizes they can't. The check should be pure client-side validation — disable the build button and surface a clear error message when the fields don't match. Matches how every other "set a password" form on the internet works, and orb-forge is opinionated enough that the user shouldn't be able to skip it. Probably also applies to the Orb Deployment Token field since mistyping it silently breaks auto-linking, but the token is long enough that a typo is easier to notice.
