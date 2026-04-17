@@ -75,6 +75,7 @@ COPY $IB_BASENAME /tmp/imagebuilder.tar
 RUN mkdir /builder && \\
     tar xf /tmp/imagebuilder.tar -C /builder --strip-components=1 && \\
     rm /tmp/imagebuilder.tar && \\
+    echo "file:packages" > /builder/repositories && \\
     chown -R buildbot:buildbot /builder
 USER buildbot
 WORKDIR /builder
