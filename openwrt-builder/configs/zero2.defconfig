@@ -1,7 +1,6 @@
-# Minimal defconfig for NanoPi Zero2 ImageBuilder build.
-# Target + profile selection only — `make defconfig` fills in the rest.
-# The ImageBuilder tarball includes all available packages from feeds,
-# so individual package selection here is for the base image only.
+# Defconfig for NanoPi Zero2 ImageBuilder build.
+# CONFIG_IB=y tells the buildroot to produce the ImageBuilder tarball.
 CONFIG_TARGET_rockchip=y
 CONFIG_TARGET_rockchip_armv8=y
 CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-zero2=y
+CONFIG_IB=y
