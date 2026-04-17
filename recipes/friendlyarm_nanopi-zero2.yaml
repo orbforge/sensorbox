@@ -1,0 +1,146 @@
+id: friendlyarm_nanopi-zero2
+title: "NanoPi Zero2"
+description: "Compact Orb probe with M.2 slot for optional Wi-Fi. Custom-built from dboze/openwrt (pm-domains-fix branch) — not yet in stock OpenWrt."
+vendor_url: "https://wiki.friendlyelec.com/wiki/index.php/NanoPi_Zero2"
+docs_url: "https://orb.net/docs/devices/nanopi-zero2"
+
+target: rockchip/armv8
+profile: friendlyarm_nanopi-zero2
+arch: aarch64_generic
+
+# Custom branch — triggers the builder API to check/build the
+# ImageBuilder container from dboze/openwrt (pm-domains-fix branch).
+# See branches.yaml for the builder config.
+version: "zero2"
+custom_branch: "zero2"
+
+capabilities:
+  wifi: true
+
+# Same M.2 Wi-Fi module options as the R5C.
+options:
+  wifi_module:
+    label: "Wi-Fi Module (M.2 slot)"
+    default: none
+    choices:
+      none:
+        label: "None installed (ethernet only)"
+      realtek_rtl8822ce:
+        label: "Realtek RTL8822CE (Wi-Fi 5)"
+      intel_be200:
+        label: "Intel BE200 (Wi-Fi 7)"
+        packages:
+          - kmod-iwlwifi
+          - iwlwifi-firmware-be200
+          - -wpad-basic-mbedtls
+          - wpad-mbedtls
+          - wpa-cli
+          - iw
+
+packages:
+  - orb
+
+repositories:
+  orb: "https://pkgs.orb.net/stable/openwrt-apk/aarch64_generic/packages.adb"
+
+repository_keys:
+  - orb-apk-ec.pub
+
+# TODO: verify on actual hardware — device mapping, LED names,
+# ethernet interface names, eMMC presence. Copied from R5C as a
+# starting point since both are Rockchip boards with similar layout.
+install:
+  hint: "Not all models have eMMC. Uncheck for SD-only operation."
+  sd_device: /dev/mmcblk0
+  emmc_device: /dev/mmcblk1
+  size_from_partition: mmcblk0p2
+  # TODO: verify actual SYS LED name on Zero2 hardware
+  status_led: "red:power"
+
+install_notes: |
+  **Note:** This device uses a custom OpenWrt build (not stock). The
+  first build may take ~45 minutes if the ImageBuilder hasn't been
+  pre-built yet — the UI will show progress.
+
+  1. Flash the downloaded image to an **SD card**.
+  2. Insert the SD card and connect power (no ethernet yet).
+  3. If **Install to eMMC** is enabled: watch the **SYS LED** — it blinks while writing to eMMC. When all LEDs pulse together, power off, remove the SD card, and re-insert power.
+  4. If running from **SD only**: wait for boot to complete, then the device is ready.
+  5. Plug ethernet into your network.
+
+defaults: |
+  # Bridge ethernet ports as a single DHCP client.
+  # TODO: verify interface names on Zero2 hardware — may differ from R5C.
+  uci set network.lan.device='br-lan'
+  uci set network.lan.proto='dhcp'
+  uci -q delete network.lan.ipaddr
+  uci -q delete network.lan.netmask
+  uci set network.@device[0]=device
+  uci set network.@device[0].name='br-lan'
+  uci set network.@device[0].type='bridge'
+  uci set network.@device[0].ports='eth0 eth1'
+  uci commit network
+
+  # Remove stock WAN configuration.
+  uci -q delete network.wan
+  uci -q delete network.wan6
+  uci commit network
+
+  {{#wifi_ssid}}
+  # Wi-Fi client configuration — same as R5C.
+  uci set wireless.radio0.band='{{{wifi_radio_band}}}'
+  uci set wireless.radio0.channel='auto'
+  uci set wireless.radio0.htmode='{{{wifi_radio_htmode}}}'
+  uci set wireless.radio0.country='{{{wifi_country}}}'
+  uci set wireless.radio0.disabled='0'
+
+  {{#wifi_band_auto}}
+  uci commit wireless
+  wifi reload 2>/dev/null; sleep 2
+  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | awk '{print int($2)}' | tr '\n' ' ')
+  uci set wireless.radio0.scan_list="$SCAN_LIST"
+  {{/wifi_band_auto}}
+
+  uci -q delete wireless.default_radio0
+  uci set wireless.sta0=wifi-iface
+  uci set wireless.sta0.device='radio0'
+  uci set wireless.sta0.mode='sta'
+  uci set wireless.sta0.network='wwan'
+  uci set wireless.sta0.ssid='{{{wifi_ssid}}}'
+  uci set wireless.sta0.encryption='{{{wifi_encryption}}}'
+  uci set wireless.sta0.key='{{{wifi_password}}}'
+
+  uci set network.wwan=interface
+  uci set network.wwan.proto='dhcp'
+  uci set network.wwan.metric='20'
+
+  uci add_list firewall.@zone[0].network='wwan'
+
+  # WL LED — TODO: verify LED name on Zero2 hardware
+  uci set system.led_wlan=led
+  uci set system.led_wlan.name='WLAN'
+  uci set system.led_wlan.sysfs='green:wlan'
+  uci set system.led_wlan.trigger='netdev'
+  uci set system.led_wlan.dev='phy0-sta0'
+  uci set system.led_wlan.mode='link tx rx'
+
+  mkdir -p /etc/hotplug.d/iface
+  cat > /etc/hotplug.d/iface/99-bgscan <<'BGSCAN_HOOK'
+  #!/bin/sh
+  [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
+  sleep 3
+  CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
+  [ -f "$CONF" ] || exit 0
+  grep -q 'bgscan=' "$CONF" && exit 0
+  sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
+  wpa_cli -i phy0-sta0 reconfigure 2>/dev/null
+  BGSCAN_HOOK
+  chmod +x /etc/hotplug.d/iface/99-bgscan
+
+  uci commit wireless
+  uci commit network
+  uci commit firewall
+  uci commit system
+
+  wifi reload 2>/dev/null
+  {{/wifi_ssid}}
