@@ -41,7 +41,11 @@ fi
 
 log "Starting build (this takes ~45 minutes)..."
 export FORCE_UNSAFE_CONFIGURE=1
-make -j"$(nproc)" V=s
+# IGNORE_ERRORS=m continues past non-critical package failures.
+# The rockchip/armv8 target builds u-boot for ALL board variants,
+# and unrelated ones (e.g. sige7-rk3588) may fail without affecting
+# our target device's ImageBuilder.
+make -j"$(nproc)" IGNORE_ERRORS=m V=s
 
 # Find the ImageBuilder tarball
 IB_TARBALL=$(find bin/targets -name 'openwrt-imagebuilder-*.tar.xz' | head -1)
