@@ -17,8 +17,9 @@ log "Commit: $SOURCE_COMMIT"
 if [ -d "$CACHE_DIR/openwrt/.git" ]; then
     log "Updating existing clone..."
     cd "$CACHE_DIR/openwrt"
+    git remote set-url origin "$OPENWRT_REPO"
     git fetch origin "$OPENWRT_BRANCH"
-    git checkout "origin/$OPENWRT_BRANCH"
+    git checkout FETCH_HEAD
 else
     log "Cloning $OPENWRT_REPO ($OPENWRT_BRANCH)..."
     git clone --branch "$OPENWRT_BRANCH" --single-branch \
