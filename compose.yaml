@@ -65,6 +65,7 @@ services:
     volumes:
       - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
       - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
+      - ./branches.yaml:/app/branches.yaml:ro
     # The Podman machine VM runs Fedora CoreOS with SELinux enforcing.
     # Without this, the worker can't open the bind-mounted Podman socket
     # even though Unix perms would allow it (EACCES on stat).
