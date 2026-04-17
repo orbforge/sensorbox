@@ -47,8 +47,8 @@ export FORCE_UNSAFE_CONFIGURE=1
 # affecting our target device's ImageBuilder.
 make -j"$(nproc)" IGNORE_ERRORS=1 V=s || true
 
-# Find the ImageBuilder tarball
-IB_TARBALL=$(find bin/targets -name 'openwrt-imagebuilder-*.tar.xz' | head -1)
+# Find the ImageBuilder tarball (may be .tar.xz or .tar.zst depending on version)
+IB_TARBALL=$(find bin/targets -name 'openwrt-imagebuilder-*.tar.*' -not -name '*.img*' | head -1)
 if [ -z "$IB_TARBALL" ]; then
     log "ERROR: ImageBuilder tarball not found in build output"
     exit 1
@@ -62,18 +62,20 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 cp "$IB_TARBALL" "$BUILD_DIR/imagebuilder.tar.xz"
 
-cat > "$BUILD_DIR/Containerfile" <<'CEOF'
+IB_BASENAME=$(basename "$IB_TARBALL")
+
+cat > "$BUILD_DIR/Containerfile" <<CEOF
 FROM docker.io/library/debian:bookworm-slim
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        build-essential gawk unzip file wget python3 python3-distutils \
-        rsync libncurses-dev zlib1g-dev ca-certificates xz-utils && \
+RUN apt-get update && \\
+    apt-get install -y --no-install-recommends \\
+        build-essential gawk unzip file wget python3 python3-distutils \\
+        rsync libncurses-dev zlib1g-dev ca-certificates xz-utils zstd && \\
     apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN useradd -m buildbot
-COPY imagebuilder.tar.xz /tmp/
-RUN mkdir /builder && \
-    tar xf /tmp/imagebuilder.tar.xz -C /builder --strip-components=1 && \
-    rm /tmp/imagebuilder.tar.xz && \
+COPY $IB_BASENAME /tmp/imagebuilder.tar
+RUN mkdir /builder && \\
+    tar xf /tmp/imagebuilder.tar -C /builder --strip-components=1 && \\
+    rm /tmp/imagebuilder.tar && \\
     chown -R buildbot:buildbot /builder
 USER buildbot
 WORKDIR /builder
@@ -82,7 +84,7 @@ CEOF
 # Build via Podman API
 LABEL_KEY="org.orbforge.source-commit"
 cd "$BUILD_DIR"
-tar cf context.tar Containerfile imagebuilder.tar.xz
+tar cf context.tar Containerfile "$IB_BASENAME"
 
 # URL-encode the tag and label
 ENCODED_TAG=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$IMAGEBUILDER_TAG', safe=''))")
