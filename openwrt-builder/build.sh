@@ -77,6 +77,7 @@ RUN mkdir /builder && \\
     tar xf /tmp/imagebuilder.tar -C /builder --strip-components=1 && \\
     rm /tmp/imagebuilder.tar && \\
     echo "file:packages" > /builder/repositories && \\
+    cd /builder && make package_index 2>/dev/null; \\
     chown -R buildbot:buildbot /builder
 USER buildbot
 WORKDIR /builder
