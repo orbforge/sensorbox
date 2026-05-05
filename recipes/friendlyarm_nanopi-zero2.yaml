@@ -1,6 +1,6 @@
 id: friendlyarm_nanopi-zero2
 title: "NanoPi Zero2"
-description: "Compact Orb probe with M.2 slot for optional Wi-Fi. Custom-built from dboze/openwrt (pm-domains-fix branch) — not yet in stock OpenWrt."
+description: "Compact Orb probe with M.2 slot for optional Wi-Fi. Uses a custom OpenWrt build — the first build may take ~45 minutes if the ImageBuilder hasn't been pre-built yet."
 vendor_url: "https://wiki.friendlyelec.com/wiki/index.php/NanoPi_Zero2"
 docs_url: "https://orb.net/docs/devices/nanopi-zero2"
 
@@ -46,39 +46,31 @@ repositories:
 repository_keys:
   - orb-apk-ec.pub
 
-# TODO: verify on actual hardware — device mapping, LED names,
-# ethernet interface names, eMMC presence. Copied from R5C as a
-# starting point since both are Rockchip boards with similar layout.
+# Hardware-verified device mapping (eMMC=mmcblk0, SD=mmcblk1).
+# Not all Zero2 SKUs ship with the eMMC module.
 install:
   hint: "Not all models have eMMC. Uncheck for SD-only operation."
-  sd_device: /dev/mmcblk0
-  emmc_device: /dev/mmcblk1
-  size_from_partition: mmcblk0p2
-  # TODO: verify actual SYS LED name on Zero2 hardware
-  status_led: "red:power"
+  sd_device: /dev/mmcblk1
+  emmc_device: /dev/mmcblk0
+  size_from_partition: mmcblk1p2
+  status_led: "green:status"
 
 install_notes: |
-  **Note:** This device uses a custom OpenWrt build (not stock). The
-  first build may take ~45 minutes if the ImageBuilder hasn't been
-  pre-built yet — the UI will show progress.
-
   1. Flash the downloaded image to an **SD card**.
-  2. Insert the SD card and connect power (no ethernet yet).
-  3. If **Install to eMMC** is enabled: watch the **SYS LED** — it blinks while writing to eMMC. When all LEDs pulse together, power off, remove the SD card, and re-insert power.
-  4. If running from **SD only**: wait for boot to complete, then the device is ready.
-  5. Plug ethernet into your network.
+  2. Insert the SD card and connect power. If the device boots into the SD image, skip to step 4.
+  3. **First-time only** If eMMC is not blank, the existing bootloader may prioritize eMMC boot and skip the SD card. SSH into the running eMMC system and run: `dd if=/dev/zero of=/dev/mmcblk0 bs=512 count=32768` then pull power, re-insert it, and the SD card will boot. Subsequent reflashes boot from SD automatically. If you cannot get SSH or serial access to the exisitng eMMC OS, see vendor instructions for clearing eMMC: https://wiki.friendlyelec.com/wiki/index.php/NanoPi_Zero2#Step_4:_Erase_eMMC
+  4. If **Install to eMMC** is enabled: the **green status LED** blinks while writing. When all LEDs pulse together, power off, remove the SD card, and re-insert power.
+  5. If running from **SD only**: wait for boot to complete.
+  6. Plug ethernet into your network.
 
 defaults: |
-  # Bridge ethernet ports as a single DHCP client.
-  # TODO: verify interface names on Zero2 hardware — may differ from R5C.
-  uci set network.lan.device='br-lan'
+  # Single ethernet port as DHCP client (Zero2 has only eth0).
+  uci set network.lan.device='eth0'
   uci set network.lan.proto='dhcp'
   uci -q delete network.lan.ipaddr
   uci -q delete network.lan.netmask
-  uci set network.@device[0]=device
-  uci set network.@device[0].name='br-lan'
-  uci set network.@device[0].type='bridge'
-  uci set network.@device[0].ports='eth0 eth1'
+  # Remove the bridge — not needed with a single port.
+  uci -q delete network.@device[0]
   uci commit network
 
   # Remove stock WAN configuration.
@@ -87,60 +79,12 @@ defaults: |
   uci commit network
 
   {{#wifi_ssid}}
-  # Wi-Fi client configuration — same as R5C.
-  uci set wireless.radio0.band='{{{wifi_radio_band}}}'
-  uci set wireless.radio0.channel='auto'
-  uci set wireless.radio0.htmode='{{{wifi_radio_htmode}}}'
-  uci set wireless.radio0.country='{{{wifi_country}}}'
-  uci set wireless.radio0.disabled='0'
-
-  {{#wifi_band_auto}}
-  uci commit wireless
-  wifi reload 2>/dev/null; sleep 2
-  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | awk '{print int($2)}' | tr '\n' ' ')
-  uci set wireless.radio0.scan_list="$SCAN_LIST"
-  {{/wifi_band_auto}}
-
-  uci -q delete wireless.default_radio0
-  uci set wireless.sta0=wifi-iface
-  uci set wireless.sta0.device='radio0'
-  uci set wireless.sta0.mode='sta'
-  uci set wireless.sta0.network='wwan'
-  uci set wireless.sta0.ssid='{{{wifi_ssid}}}'
-  uci set wireless.sta0.encryption='{{{wifi_encryption}}}'
-  uci set wireless.sta0.key='{{{wifi_password}}}'
-
-  uci set network.wwan=interface
-  uci set network.wwan.proto='dhcp'
-  uci set network.wwan.metric='20'
-
-  uci add_list firewall.@zone[0].network='wwan'
-
-  # WL LED — TODO: verify LED name on Zero2 hardware
+  # WL LED — device-specific sysfs path. Wi-Fi client config is in _common.yaml.
   uci set system.led_wlan=led
   uci set system.led_wlan.name='WLAN'
-  uci set system.led_wlan.sysfs='green:wlan'
+  uci set system.led_wlan.sysfs='green:status'
   uci set system.led_wlan.trigger='netdev'
-  uci set system.led_wlan.dev='phy0-sta0'
+  uci set system.led_wlan.dev='wlan0'
   uci set system.led_wlan.mode='link tx rx'
-
-  mkdir -p /etc/hotplug.d/iface
-  cat > /etc/hotplug.d/iface/99-bgscan <<'BGSCAN_HOOK'
-  #!/bin/sh
-  [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
-  sleep 3
-  CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
-  [ -f "$CONF" ] || exit 0
-  grep -q 'bgscan=' "$CONF" && exit 0
-  sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
-  wpa_cli -i phy0-sta0 reconfigure 2>/dev/null
-  BGSCAN_HOOK
-  chmod +x /etc/hotplug.d/iface/99-bgscan
-
-  uci commit wireless
-  uci commit network
-  uci commit firewall
   uci commit system
-
-  wifi reload 2>/dev/null
   {{/wifi_ssid}}

@@ -100,6 +100,10 @@ The mechanism is device-specific (which eMMC device node to target, which device
 - [ ] Recipe tests: spin up the stack, build each recipe end-to-end against ASU, verify the resulting image contains the expected packages and that `files/etc/uci-defaults/99-asu-defaults` matches what the recipe rendered. Runs in CI against the committed recipes.
 - [ ] Static check that every recipe's declared `arch` matches the target it claims (no silent drift between rockchip/armv8 and `aarch64_generic`).
 
+## eMMC installer simplification
+
+- [ ] Replace the sector-arithmetic approach (computing squashfs boundaries from loop0 offsets, p2 start sectors, etc.) with a simpler embedded-image approach: bake a compressed copy of the full disk image into the squashfs (e.g. `/rom/orb-install.img.gz`) and `zcat` it to eMMC. Eliminates all the brittle offset math, overlay-leak bugs, and bs=1M rounding issues. Extra ~15-20 MB in the image is negligible on modern SD cards. The current approach works but has been the source of multiple hard-to-debug failures (overlay copying, mount_root failures, off-by-one zeroing). Requires ImageBuilder or ASU support for injecting the image file — investigate feasibility.
+
 ## Phase 6 — Later enhancements
 
 - [ ] Periodic auto-upgrades via the local ASU server, flagged "save for last" in GOALS.md. Requires deciding: does the probe point at our local ASU (LAN-only, doesn't work when the user takes it elsewhere) or a public one? Probably out of scope for homelab-only deployments.

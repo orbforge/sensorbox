@@ -4,3 +4,15 @@ CONFIG_TARGET_rockchip=y
 CONFIG_TARGET_rockchip_armv8=y
 CONFIG_TARGET_rockchip_armv8_DEVICE_friendlyarm_nanopi-zero2=y
 CONFIG_IB=y
+
+# 2 GB rootfs partition gives a comfortable overlay for telegraf-full
+# plus future growth. Default rockchip partsize (~256 MB) fills up the
+# moment you `apk add` anything substantial. Kernel partition stays at
+# 32 MB — the kernel + dtb + boot.scr easily fit and going larger just
+# wastes space on every image.
+CONFIG_TARGET_ROOTFS_PARTSIZE=2048
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+
+# Kernel modules that must be compiled locally (must match our kernel
+# version). User-space packages come from upstream snapshot repos.
+CONFIG_PACKAGE_kmod-iwlwifi=y

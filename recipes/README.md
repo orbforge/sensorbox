@@ -77,7 +77,7 @@ Fields:
 | `hint`                  | string | Short text shown below the "Install to eMMC" checkbox. Use for device-specific caveats like "not all models have eMMC" or "uncheck for SD-only testing." |
 | `sd_device`             | string | Block device node of the SD card (e.g. `/dev/mmcblk1`).                                |
 | `emmc_device`           | string | Block device node of the onboard flash (e.g. `/dev/mmcblk0`).                          |
-| `size_from_partition`   | string | Partition name as seen under `/sys/class/block/` (e.g. `mmcblk1p2`) whose `start` sector offset is added to `/sys/block/loop0/size` to compute the dd count. |
+| `size_from_partition`   | string | Partition name as seen under `/sys/class/block/` (e.g. `mmcblk1p2`) whose `start` sector offset plus the overlay's `loop0` offset gives the squashfs-only dd count. |
 | `status_led`            | string | Kernel-exposed LED name under `/sys/class/leds/` (e.g. `green:heartbeat`). Used to signal working / done / error states during install. |
 
 The user's install-to-eMMC choice at build time is available as Mustache variable `install_to_emmc` (boolean) for conditional section rendering.

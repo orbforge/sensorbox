@@ -38,6 +38,22 @@ options:
           - wpad-mbedtls
           - wpa-cli
           - iw
+        # Optional shell snippet substituted verbatim into the device's
+        # /usr/libexec/orb-telemetry/wifi-temp.sh by _common.yaml when
+        # system telemetry is enabled. Runs ahead of the generic hwmon
+        # scan; if a temperature is found and printed, `exit 0` skips
+        # the fallback. Generic match (case "iwl*") in _common.yaml
+        # already covers BE200 in practice — this override is here as
+        # the worked example for chipsets that need non-standard paths.
+        wifi_temp_probe: |
+          for hw in /sys/class/hwmon/hwmon*; do
+              [ -r "$hw/name" ] || continue
+              case "$(cat "$hw/name")" in iwl*) ;; *) continue ;; esac
+              [ -r "$hw/temp1_input" ] || continue
+              milli=$(cat "$hw/temp1_input")
+              printf 'wifi_temp,module=intel_be200 temp_celsius=%s\n' "$(awk "BEGIN{printf \"%.2f\", $milli/1000}")"
+              exit 0
+          done
 
 packages:
   - orb
@@ -84,83 +100,12 @@ defaults: |
   uci commit network
 
   {{#wifi_ssid}}
-  # Wi-Fi client configuration.
-  #
-  # Band handling: "auto" mode sets band='5g' (for PHY setup) then
-  # generates a scan_list covering all bands so the supplicant can
-  # roam across 2.4/5/6 GHz. Locked bands set the band directly
-  # with no scan_list — the radio only operates on that band.
-  #
-  # For auto mode, set country FIRST and reload so iw phy reports
-  # 6 GHz frequencies before we generate the scan_list.
-  uci set wireless.radio0.band='{{{wifi_radio_band}}}'
-  uci set wireless.radio0.channel='auto'
-  uci set wireless.radio0.htmode='{{{wifi_radio_htmode}}}'
-  uci set wireless.radio0.country='{{{wifi_country}}}'
-  uci set wireless.radio0.disabled='0'
-
-  {{#wifi_band_auto}}
-  # Auto-band: reload radio with country set, then generate a
-  # scan_list covering all regulatory-allowed frequencies.
-  uci commit wireless
-  wifi reload 2>/dev/null; sleep 2
-  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | awk '{print int($2)}' | tr '\n' ' ')
-  uci set wireless.radio0.scan_list="$SCAN_LIST"
-  {{/wifi_band_auto}}
-
-  uci -q delete wireless.default_radio0
-  uci set wireless.sta0=wifi-iface
-  uci set wireless.sta0.device='radio0'
-  uci set wireless.sta0.mode='sta'
-  uci set wireless.sta0.network='wwan'
-  uci set wireless.sta0.ssid='{{{wifi_ssid}}}'
-  uci set wireless.sta0.encryption='{{{wifi_encryption}}}'
-  uci set wireless.sta0.key='{{{wifi_password}}}'
-
-  uci set network.wwan=interface
-  uci set network.wwan.proto='dhcp'
-  uci set network.wwan.metric='20'
-
-  # Add wwan to the LAN firewall zone so the device is reachable
-  # via SSH over Wi-Fi (not just ethernet).
-  uci add_list firewall.@zone[0].network='wwan'
-
-  # WL LED — same netdev trigger as LAN/WAN: solid when associated,
-  # blinks on tx/rx traffic.
+  # WL LED — device-specific sysfs path. Wi-Fi client config is in _common.yaml.
   uci set system.led_wlan=led
   uci set system.led_wlan.name='WLAN'
   uci set system.led_wlan.sysfs='green:wlan'
   uci set system.led_wlan.trigger='netdev'
-  uci set system.led_wlan.dev='phy0-sta0'
+  uci set system.led_wlan.dev='wlan0'
   uci set system.led_wlan.mode='link tx rx'
-
-  # OpenWrt's UCI doesn't pass bgscan to wpa_supplicant. Create a
-  # hotplug script that injects it after every wwan ifup so the
-  # supplicant does background scans and roams across bands.
-  # OpenWrt's UCI doesn't support bgscan. Inject it via a hotplug
-  # script that patches the wpa_supplicant config on every wwan ifup
-  # and tells wpa_supplicant to reload gracefully via wpa_cli.
-  mkdir -p /etc/hotplug.d/iface
-  cat > /etc/hotplug.d/iface/99-bgscan <<'BGSCAN_HOOK'
-  #!/bin/sh
-  [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
-  sleep 3
-  CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
-  [ -f "$CONF" ] || exit 0
-  grep -q 'bgscan=' "$CONF" && exit 0
-  sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
-  wpa_cli -i phy0-sta0 reconfigure 2>/dev/null
-  BGSCAN_HOOK
-  chmod +x /etc/hotplug.d/iface/99-bgscan
-
-  uci commit wireless
-  uci commit network
-  uci commit firewall
   uci commit system
-
-  # Second wifi reload — the first one (above) applied the country
-  # so iw phy would report 6 GHz frequencies for the scan_list. But
-  # that reload happened before sta0/scan_list/bgscan were configured.
-  # This reload applies the full config including the station interface.
-  wifi reload 2>/dev/null
   {{/wifi_ssid}}

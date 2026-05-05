@@ -61,16 +61,16 @@ select_disk() {
         # Only consider whole disks
         local info
         info=$(diskutil info -plist "$disk" 2>/dev/null) || continue
-        local removable size_bytes size_gb name protocol
+        local removable ejectable size_bytes size_gb name protocol
         removable=$(echo "$info" | plutil -extract Removable raw - 2>/dev/null || echo "false")
-        # Also check if it's external (USB/SD readers may not report as removable)
-        local ejectable
         ejectable=$(echo "$info" | plutil -extract Ejectable raw - 2>/dev/null || echo "false")
         [[ "$removable" == "true" || "$ejectable" == "true" ]] || continue
+        protocol=$(echo "$info" | plutil -extract BusProtocol raw - 2>/dev/null || echo "")
+        # Skip disk images (mounted .dmg, Podman container volumes, etc.)
+        [[ "$protocol" == "Disk Image" ]] && continue
         size_bytes=$(echo "$info" | plutil -extract Size raw - 2>/dev/null || echo 0)
         size_gb=$(( size_bytes / 1073741824 ))
         name=$(echo "$info" | plutil -extract MediaName raw - 2>/dev/null || echo "Unknown")
-        protocol=$(echo "$info" | plutil -extract BusProtocol raw - 2>/dev/null || echo "")
         DISK_LIST+="${disk}  ${size_gb}GB  ${name}  (${protocol})|${disk}"$'\n'
     done
 

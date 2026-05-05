@@ -64,20 +64,47 @@ mkdir -p "$BUILD_DIR"
 IB_BASENAME=$(basename "$IB_TARBALL")
 cp "$IB_TARBALL" "$BUILD_DIR/$IB_BASENAME"
 
+# Derive the apk architecture from the ImageBuilder's .config.
+# The tarball is too large to extract just for this, so we read the
+# value from the buildroot's .config (still in the source tree).
+ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' "$CACHE_DIR/openwrt/.config")
+TARGET_BOARD=$(echo "$OPENWRT_TARGET" | cut -d/ -f1)
+TARGET_SUB=$(echo "$OPENWRT_TARGET" | cut -d/ -f2)
+log "Architecture: $ARCH  Target: $TARGET_BOARD/$TARGET_SUB"
+
+# Build the repositories file. Local packages first (takes precedence
+# for kernel/kmods), then upstream snapshot repos for everything else.
+# The Makefile already passes local packages via --repository flag,
+# so the repositories file only needs the remote upstream feeds.
+cat > "$BUILD_DIR/repositories" <<REOF
+https://downloads.openwrt.org/snapshots/targets/${TARGET_BOARD}/${TARGET_SUB}/packages/packages.adb
+https://downloads.openwrt.org/snapshots/packages/${ARCH}/base/packages.adb
+https://downloads.openwrt.org/snapshots/packages/${ARCH}/luci/packages.adb
+https://downloads.openwrt.org/snapshots/packages/${ARCH}/packages/packages.adb
+https://downloads.openwrt.org/snapshots/packages/${ARCH}/routing/packages.adb
+https://downloads.openwrt.org/snapshots/packages/${ARCH}/telephony/packages.adb
+REOF
+
 cat > "$BUILD_DIR/Containerfile" <<CEOF
 FROM docker.io/library/debian:bookworm-slim
 RUN apt-get update && \\
     apt-get install -y --no-install-recommends \\
         build-essential gawk unzip file wget python3 python3-distutils \\
-        rsync libncurses-dev zlib1g-dev ca-certificates xz-utils zstd && \\
+        rsync libncurses-dev zlib1g-dev ca-certificates xz-utils zstd git && \\
     apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN useradd -m buildbot
 COPY $IB_BASENAME /tmp/imagebuilder.tar
+COPY repositories /tmp/repositories
 RUN mkdir /builder && \\
     tar xf /tmp/imagebuilder.tar -C /builder --strip-components=1 && \\
     rm /tmp/imagebuilder.tar && \\
-    echo "file:packages" > /builder/repositories && \\
-    cd /builder && make package_index 2>/dev/null; \\
+    cp /tmp/repositories /builder/repositories && \\
+    cd /builder && \\
+    sed -i 's/^CONFIG_IB_STANDALONE=y/# CONFIG_IB_STANDALONE is not set/' /builder/.config && \\
+    sed -i 's/^CONFIG_SIGNATURE_CHECK=y/# CONFIG_SIGNATURE_CHECK is not set/' /builder/.config && \\
+    openssl ecparam -name prime256v1 -genkey -noout -out /builder/keys/local-private-key.pem && \\
+    openssl ec -in /builder/keys/local-private-key.pem -pubout -out /builder/keys/local-public-key.pem && \\
+    make package_index V=s && \\
     chown -R buildbot:buildbot /builder
 USER buildbot
 WORKDIR /builder
@@ -86,7 +113,7 @@ CEOF
 # Build via Podman API
 LABEL_KEY="org.orbforge.source-commit"
 cd "$BUILD_DIR"
-tar cf context.tar Containerfile "$IB_BASENAME"
+tar cf context.tar Containerfile repositories "$IB_BASENAME"
 
 # URL-encode the tag and label
 ENCODED_TAG=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$IMAGEBUILDER_TAG', safe=''))")
@@ -96,7 +123,6 @@ curl -s --unix-socket "$CONTAINER_SOCKET_PATH" \
     -X POST \
     -H "Content-Type: application/x-tar" \
     --data-binary @context.tar \
-    "http://d/v5.0.0/libpod/build?t=${ENCODED_TAG}&labels=${ENCODED_LABELS}" \
-    > /dev/null 2>&1
+    "http://d/v5.0.0/libpod/build?t=${ENCODED_TAG}&labels=${ENCODED_LABELS}&nocache=1"
 
 log "Container image built: $IMAGEBUILDER_TAG (commit: $SOURCE_COMMIT)"
