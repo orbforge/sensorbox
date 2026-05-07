@@ -99,24 +99,24 @@ defaults: |
   # orb-capture-stop cleans up and restores normal Wi-Fi operation.
   if [ -d /sys/class/ieee80211 ]; then
       cat > /usr/bin/orb-capture-mode <<'CAPTURE_MODE'
-#!/bin/sh
-ubus call network.wireless down
-sleep 1
-PHY=$(ls /sys/class/ieee80211/ | head -1)
-iw phy "$PHY" interface add wlan0 type managed
-echo "Ready for capture. Run 'orb-capture-stop' to restore Wi-Fi."
-CAPTURE_MODE
+  #!/bin/sh
+  ubus call network.wireless down
+  sleep 1
+  PHY=$(ls /sys/class/ieee80211/ | head -1)
+  iw phy "$PHY" interface add wlan0 type managed
+  echo "Ready for capture. Run 'orb-capture-stop' to restore Wi-Fi."
+  CAPTURE_MODE
       chmod +x /usr/bin/orb-capture-mode
 
       cat > /usr/bin/orb-capture-stop <<'CAPTURE_STOP'
-#!/bin/sh
-iw dev wlan0 del 2>/dev/null
-for dev in $(iw dev | awk '/Interface/{name=$2} /type monitor/{print name}'); do
-    iw dev "$dev" del 2>/dev/null
-done
-ubus call network.wireless up
-echo "Wi-Fi restored."
-CAPTURE_STOP
+  #!/bin/sh
+  iw dev wlan0 del 2>/dev/null
+  for dev in $(iw dev | awk '/Interface/{name=$2} /type monitor/{print name}'); do
+      iw dev "$dev" del 2>/dev/null
+  done
+  ubus call network.wireless up
+  echo "Wi-Fi restored."
+  CAPTURE_STOP
       chmod +x /usr/bin/orb-capture-stop
   fi
 
