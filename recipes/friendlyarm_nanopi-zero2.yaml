@@ -37,6 +37,29 @@ options:
           - wpa-cli
           - iw
 
+  # USB-C iPhone-tethered diagnostic mode. Brings up an NCM USB gadget on
+  # usb0 (192.168.42.1/24) with DHCP for the iPhone and an avahi mDNS
+  # advertisement of `_ssh._tcp` carrying TXT record `id=wlanpi` — that's
+  # the exact discovery handshake WiFi Explorer Pi (iOS) uses to find
+  # WLAN Pi-compatible devices. The iOS app then SSHes in over usb0 and
+  # drives capture remotely, so the only thing the device needs to expose
+  # is SSH + mDNS. Most useful with `wifi_module=intel_be200` since the
+  # BE200 is what the iOS app actually captures on.
+  #
+  # Kernel prereq: dboze/openwrt branch add-nanopi-zero2-clean must have
+  # the DWC3 dual-role + USB gadget + configfs NCM kernel config landed.
+  # See openwrt-builder/RK3528-OTG-NOTES.md for the diff and rationale.
+  usb_diagnostic:
+    label: "USB-C diagnostic mode (iPhone tethered)"
+    default: disabled
+    choices:
+      disabled:
+        label: "Disabled"
+      enabled:
+        label: "Enabled — NCM gadget + WiFi Explorer Pi discovery"
+        packages:
+          - avahi-daemon
+
 packages:
   - orb
 
@@ -63,6 +86,8 @@ install_notes: |
   5. If running from **SD only**: wait for boot to complete.
   6. Plug ethernet into your network.
 
+  **USB-C diagnostic mode** (if selected): plug a USB-C cable from the Zero2 into an iPhone. The iPhone gets a DHCP lease on `192.168.42.0/24` and reaches the device at `192.168.42.1` over the USB link. WiFi Explorer Pi (iOS) auto-discovers the device via mDNS (`_ssh._tcp` + TXT `id=wlanpi`) and drives capture over SSH. The diagnostic mode is most useful with the **Intel BE200** Wi-Fi module installed — without a Wi-Fi card there's nothing for the iOS app to capture on.
+
 defaults: |
   # Single ethernet port as DHCP client (Zero2 has only eth0).
   uci set network.lan.device='eth0'
@@ -88,3 +113,135 @@ defaults: |
   uci set system.led_wlan.mode='link tx rx'
   uci commit system
   {{/wifi_ssid}}
+
+  {{#usb_diagnostic_enabled}}
+  # USB-C iPhone-tethered diagnostic mode.
+  #
+  # Three pieces:
+  #   1. /etc/init.d/orb-forge-gadget — configures the NCM USB gadget at
+  #      boot via configfs and brings up usb0 with a static address.
+  #   2. usb0 network + dhcp config — gives the iPhone a DHCP lease.
+  #      usb0 is added to the lan firewall zone so SSH from the iPhone
+  #      reaches dropbear (which listens on all interfaces by default).
+  #   3. /etc/avahi/services/wlanpi.service — advertises _ssh._tcp with
+  #      TXT id=wlanpi so WiFi Explorer Pi (iOS) discovers the device.
+
+  cat > /etc/init.d/orb-forge-gadget <<'GADGET_INIT'
+  #!/bin/sh /etc/rc.common
+  # Mount configfs, build the NCM gadget, bind it to the dwc3 UDC, bring
+  # usb0 up. Idempotent — re-running is a no-op.
+  START=85
+  STOP=15
+  USE_PROCD=1
+
+  GADGET_DIR=/sys/kernel/config/usb_gadget/orb
+  HOST_MAC=02:11:22:33:44:55
+  DEV_MAC=02:aa:bb:cc:dd:ee
+
+  start_service() {
+      # Use /proc/mounts (always present) rather than `mountpoint` which
+      # isn't shipped in OpenWrt's busybox build.
+      grep -q ' /sys/kernel/config configfs ' /proc/mounts || \
+          mount -t configfs none /sys/kernel/config 2>/dev/null
+
+      [ -d /sys/kernel/config/usb_gadget ] || {
+          logger -t orb-forge-gadget "usb_gadget configfs subsystem not registered; aborting"
+          return 1
+      }
+
+      # Pick the first UDC (typically fe500000.usb on the Zero2).
+      UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
+      [ -n "$UDC" ] || {
+          logger -t orb-forge-gadget "no UDC available; aborting"
+          return 1
+      }
+
+      if [ ! -d "$GADGET_DIR" ]; then
+          mkdir -p "$GADGET_DIR"
+          echo 0x1d6b > "$GADGET_DIR/idVendor"   # Linux Foundation
+          echo 0x0104 > "$GADGET_DIR/idProduct"  # Multifunction Composite
+          echo 0x0100 > "$GADGET_DIR/bcdDevice"
+          echo 0x0200 > "$GADGET_DIR/bcdUSB"
+
+          mkdir -p "$GADGET_DIR/strings/0x409"
+          echo "orb-forge"        > "$GADGET_DIR/strings/0x409/manufacturer"
+          echo "Sensorbox Zero2"  > "$GADGET_DIR/strings/0x409/product"
+          cat /proc/sys/kernel/random/uuid | tr -d '-' > "$GADGET_DIR/strings/0x409/serialnumber"
+
+          mkdir -p "$GADGET_DIR/configs/c.1/strings/0x409"
+          echo "NCM" > "$GADGET_DIR/configs/c.1/strings/0x409/configuration"
+          echo 250   > "$GADGET_DIR/configs/c.1/MaxPower"
+
+          mkdir -p "$GADGET_DIR/functions/ncm.usb0"
+          echo "$HOST_MAC" > "$GADGET_DIR/functions/ncm.usb0/host_addr"
+          echo "$DEV_MAC"  > "$GADGET_DIR/functions/ncm.usb0/dev_addr"
+
+          ln -s "$GADGET_DIR/functions/ncm.usb0" "$GADGET_DIR/configs/c.1/"
+      fi
+
+      # Bind to UDC if not already bound.
+      if [ -z "$(cat $GADGET_DIR/UDC 2>/dev/null)" ]; then
+          echo "$UDC" > "$GADGET_DIR/UDC"
+      fi
+
+      # Wait briefly for the kernel to create usb0, then let netifd own it.
+      for i in 1 2 3 4 5; do
+          [ -d /sys/class/net/usb0 ] && break
+          sleep 1
+      done
+      ifup usb0 2>/dev/null || true
+      logger -t orb-forge-gadget "gadget configured; bound to $UDC"
+  }
+
+  stop_service() {
+      [ -d "$GADGET_DIR" ] || return 0
+      echo "" > "$GADGET_DIR/UDC" 2>/dev/null || true
+      ifdown usb0 2>/dev/null || true
+  }
+  GADGET_INIT
+  chmod +x /etc/init.d/orb-forge-gadget
+  /etc/init.d/orb-forge-gadget enable
+
+  # usb0 as a static interface, in the lan firewall zone so SSH from the
+  # iPhone is accepted (dropbear binds all ifaces by default; usb0 just
+  # needs to be a known-trusted zone for fw4 to allow input).
+  uci set network.usb0=interface
+  uci set network.usb0.proto='static'
+  uci set network.usb0.device='usb0'
+  uci set network.usb0.ipaddr='192.168.42.1'
+  uci set network.usb0.netmask='255.255.255.0'
+  uci commit network
+
+  uci add_list firewall.@zone[0].network='usb0'
+  uci commit firewall
+
+  # DHCP on usb0 so the iPhone auto-configures.
+  uci set dhcp.usb0=dhcp
+  uci set dhcp.usb0.interface='usb0'
+  uci set dhcp.usb0.start='2'
+  uci set dhcp.usb0.limit='50'
+  uci set dhcp.usb0.leasetime='12h'
+  uci commit dhcp
+
+  # mDNS advertisement so WiFi Explorer Pi (iOS) finds the device. Per
+  # empirical research against wlanpi-pi-gen, the iOS app browses for
+  # _ssh._tcp services with TXT record "id=wlanpi" — that's the entire
+  # discovery handshake. No custom service type needed.
+  mkdir -p /etc/avahi/services
+  cat > /etc/avahi/services/wlanpi.service <<'AVAHI_SERVICE'
+  <?xml version="1.0" standalone='no'?>
+  <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+  <service-group>
+    <name replace-wildcards="yes">%h</name>
+    <service>
+      <type>_ssh._tcp</type>
+      <port>22</port>
+      <txt-record>id=wlanpi</txt-record>
+    </service>
+  </service-group>
+  AVAHI_SERVICE
+
+  # Enable + (re)start avahi so it picks up the service file.
+  /etc/init.d/avahi-daemon enable
+  /etc/init.d/avahi-daemon restart 2>/dev/null || /etc/init.d/avahi-daemon start
+  {{/usb_diagnostic_enabled}}
