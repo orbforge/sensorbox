@@ -72,7 +72,9 @@ repository_keys:
 install_notes: |
   This image targets the Raspberry Pi 4 family — **Pi 4B**, **Pi 400**, and **CM4** (with any M.2-capable carrier such as the WLAN Pi M4+ / Mcuzone Wi-Fi 7 PoE). The OpenWrt `rpi-4` profile is one image that boots on all of them.
 
-  **Wi-Fi:** the dropdown selects which packages are baked in. *Onboard Broadcom* uses the SoC's built-in 43455 — no extra hardware needed. *Intel BE200 on M.2* needs a way to bring M.2 PCIe to the Pi — typically a CM4 carrier board, but Pi 4B M.2 HATs that route the SoC's PCIe lane work too. At first boot the image self-adapts: if it detects an `iwlwifi` PHY (BE200 present), it disables the onboard Broadcom radio and uses the BE200 as `wlan0`; otherwise it leaves the onboard Broadcom in place.
+  **Wi-Fi:** the dropdown selects which packages are baked in. *Onboard Broadcom* uses the SoC's built-in 43455 — no extra hardware needed. *Intel BE200 on M.2* needs a way to bring M.2 PCIe to the Pi — typically a CM4 carrier board, but Pi 4B M.2 HATs that route the SoC's PCIe lane work too.
+
+  **First-boot reboot (BE200 builds only).** When both the onboard Broadcom and an Intel M.2 card are present, the image edits `/boot/config.txt` to disable the onboard radios and **reboots once** (~30s after first boot completes) so the disable takes effect. Without this, both PHYs enumerate and the kernel's hotplug auto-reloads the onboard driver, causing a `wlan0` name collision that prevents Wi-Fi from associating to the BE200. After the one reboot, only the BE200 enumerates and Wi-Fi associates cleanly on every subsequent boot. Pi 4B onboard-only builds skip this entirely.
 
   1. Flash the downloaded image to an **SD card**.
   2. Insert the SD card and connect power.
@@ -100,88 +102,58 @@ defaults: |
   uci commit network
 
   {{#wifi_ssid}}
-  # Self-adapting Wi-Fi setup. The image is the same for Pi 4B (onboard
-  # only) and CM4 + M.2 BE200 carriers. We branch at runtime on whether
-  # an iwlwifi PHY is currently enumerated — if so, the user has an M.2
-  # Intel card and we want to make it the only radio (disable onboard
-  # Broadcom permanently in /boot/config.txt and live-unload brcmfmac so
-  # wlan0 maps to the BE200 on this boot too). If not, the onboard
-  # Broadcom is the only radio and _common.yaml's wifi setup already
-  # bound it correctly.
+  # Self-adapting Wi-Fi handling for the onboard Broadcom + M.2 Intel
+  # combo. If we see both an iwlwifi PHY (BE200) and a brcmfmac PHY
+  # (onboard 43455 on CM4 / Pi 4B), the only reliable way to make wlan0
+  # map deterministically to the BE200 is to disable the onboard radio
+  # in /boot/config.txt and reboot. Live `rmmod` workarounds don't hold:
+  # the kernel auto-reloads brcmfmac whenever the SDIO device is
+  # enumerated, and reloads the default wlan0 interface that collides
+  # with the one netifd wants on the BE200. The disable-wifi/disable-bt
+  # device-tree overlays are the clean fix, but they're only consumed
+  # at boot time — hence the one-shot reboot.
   HAS_IWLWIFI=0
+  HAS_BRCMFMAC=0
   for _phy in /sys/class/ieee80211/*; do
       [ -L "$_phy/device/driver" ] || continue
       case "$(basename "$(readlink "$_phy/device/driver")")" in
-          iwlwifi) HAS_IWLWIFI=1 ;;
+          iwlwifi)  HAS_IWLWIFI=1 ;;
+          brcmfmac) HAS_BRCMFMAC=1 ;;
       esac
   done
 
-  if [ "$HAS_IWLWIFI" = 1 ]; then
-      # Persist disable-onboard for next boot. Also adds a GPIO-26 fan
-      # overlay for Mcuzone-style carriers (harmless on carriers without
-      # one). Idempotent via marker comment.
+  if [ "$HAS_IWLWIFI" = 1 ] && [ "$HAS_BRCMFMAC" = 1 ]; then
+      # First-boot path: both PHYs present, our marker not yet in
+      # config.txt. Append the disable-onboard overlays and schedule a
+      # reboot so they take effect. Marker check makes this idempotent —
+      # if we somehow run again with the marker already present, we
+      # don't re-edit and don't re-schedule (no boot loop).
       if [ -f /boot/config.txt ] && ! grep -q '^# orb-forge: ' /boot/config.txt; then
           cat >> /boot/config.txt <<'CFGTXT_EOF'
 
-  # orb-forge: Intel M.2 card detected; disable CM4 onboard Wi-Fi/BT so
-  # the M.2 BE200 is the only Wi-Fi PHY. Also add a GPIO-26 fan overlay
-  # for Mcuzone-style carriers (harmless on carriers without one).
+  # orb-forge: Intel M.2 card detected; disable onboard Wi-Fi/BT so the
+  # M.2 BE200 is the only Wi-Fi PHY. Covers both CM4 (Mcuzone-style
+  # carrier) and Pi 4B with an M.2 HAT. Also adds a GPIO-26 fan overlay
+  # for Mcuzone carriers (harmless on carriers without a fan transistor
+  # on that pin).
   [cm4]
   dtoverlay=disable-wifi
   dtoverlay=disable-bt
   dtoverlay=gpio-fan,gpiopin=26,temp=70000
+  [pi4]
+  dtoverlay=disable-wifi
+  dtoverlay=disable-bt
   [all]
   CFGTXT_EOF
+
+          # Background a reboot so this script can exit 0 normally and
+          # the uci-defaults framework can delete the script before the
+          # reboot fires (otherwise the script stays around and re-runs
+          # on the next boot). The 30s sleep gives sysinit, procd, and
+          # other first-boot uci-defaults scripts time to settle. The
+          # subshell is reparented to procd when the parent exits, so
+          # it keeps running after this script has been deleted.
+          (sleep 30 && reboot) >/dev/null 2>&1 &
       fi
-
-      # Live: snapshot _common's wireless settings, drop onboard Broadcom,
-      # rebuild wireless config from current PHY state (only BE200 left),
-      # re-apply settings to the regenerated radio0. This makes Wi-Fi
-      # work on FIRST boot without waiting for a power-cycle.
-      _SAVED_BAND=$(uci -q get wireless.radio0.band)
-      _SAVED_HTMODE=$(uci -q get wireless.radio0.htmode)
-      _SAVED_COUNTRY=$(uci -q get wireless.radio0.country)
-      _SAVED_CHANNEL=$(uci -q get wireless.radio0.channel)
-      _SAVED_DISABLED=$(uci -q get wireless.radio0.disabled)
-      _SAVED_SCAN_LIST=$(uci -q get wireless.radio0.scan_list)
-      _SAVED_SSID=$(uci -q get wireless.sta0.ssid)
-      _SAVED_KEY=$(uci -q get wireless.sta0.key)
-      _SAVED_ENCRYPTION=$(uci -q get wireless.sta0.encryption)
-
-      # Tear down any pre-existing wlan interfaces. brcmfmac auto-creates
-      # a default wlan0 when it loads, which keeps the driver in use and
-      # makes rmmod fail silently. Removing the interfaces first lets the
-      # rmmod succeed, AND clears the wlan0 name so netifd can re-create
-      # it on the BE200's PHY without collision.
-      for _iface in $(iw dev 2>/dev/null | awk '/Interface/{print $2}'); do
-          ip link set "$_iface" down 2>/dev/null
-          iw dev "$_iface" del 2>/dev/null
-      done
-
-      rmmod brcmfmac 2>/dev/null || true
-      rmmod brcmutil 2>/dev/null || true
-
-      rm -f /etc/config/wireless
-      wifi config
-
-      uci set wireless.radio0.band="$_SAVED_BAND"
-      uci set wireless.radio0.htmode="$_SAVED_HTMODE"
-      uci set wireless.radio0.country="$_SAVED_COUNTRY"
-      uci set wireless.radio0.channel="${_SAVED_CHANNEL:-auto}"
-      uci set wireless.radio0.disabled="${_SAVED_DISABLED:-0}"
-      [ -n "$_SAVED_SCAN_LIST" ] && uci set wireless.radio0.scan_list="$_SAVED_SCAN_LIST"
-
-      uci -q delete wireless.default_radio0
-      uci set wireless.sta0=wifi-iface
-      uci set wireless.sta0.device='radio0'
-      uci set wireless.sta0.mode='sta'
-      uci set wireless.sta0.network='wwan'
-      uci set wireless.sta0.ssid="$_SAVED_SSID"
-      uci set wireless.sta0.encryption="$_SAVED_ENCRYPTION"
-      uci set wireless.sta0.key="$_SAVED_KEY"
-      uci set wireless.sta0.ifname='wlan0'
-
-      uci commit wireless
-      wifi reload 2>/dev/null
   fi
   {{/wifi_ssid}}
