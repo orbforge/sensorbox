@@ -6,6 +6,6 @@ zero2:
   apk: true
   builder:
     repo: "https://github.com/dboze/openwrt"
-    branch: "add-nanopi-zero2-clean"
+    branch: "add-rk3528-usb-gadget"
     target: "rockchip/armv8"
     defconfig: "zero2.defconfig"
