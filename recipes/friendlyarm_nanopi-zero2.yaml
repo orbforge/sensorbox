@@ -201,6 +201,14 @@ defaults: |
   GADGET_INIT
   chmod +x /etc/init.d/orb-forge-gadget
   /etc/init.d/orb-forge-gadget enable
+  # procd scans /etc/rc.d/ for services *before* uci-defaults runs at
+  # first boot, so the S85 symlink we just created isn't visible to
+  # procd's startup pass. Without an explicit invocation here, the
+  # gadget doesn't come up until the next reboot — at which point the
+  # symlink is in place. Backgrounded so uci-defaults can still exit 0
+  # and be deleted normally. Mirrors the eMMC installer pattern in
+  # _common.yaml.
+  /etc/rc.common /etc/init.d/orb-forge-gadget boot &
 
   # usb0 as a static interface, in the lan firewall zone so SSH from the
   # iPhone is accepted (dropbear binds all ifaces by default; usb0 just
@@ -216,11 +224,21 @@ defaults: |
   uci commit firewall
 
   # DHCP on usb0 so the iPhone auto-configures.
+  #
+  # dhcp_option 3 + 6 suppressed (empty values) — without these, dnsmasq
+  # advertises the Zero2 as both the default gateway and DNS for the
+  # client. iOS then picks usb0 as its primary route, but the Zero2 has
+  # no upstream internet, so the iPhone loses connectivity for anything
+  # not on 192.168.42.0/24 (including Orb cloud APIs for teleport).
+  # Suppressing both keeps the on-link route intact (so 192.168.42.1 is
+  # still reachable) while leaving the host's Wi-Fi/cellular as default.
   uci set dhcp.usb0=dhcp
   uci set dhcp.usb0.interface='usb0'
   uci set dhcp.usb0.start='2'
   uci set dhcp.usb0.limit='50'
   uci set dhcp.usb0.leasetime='12h'
+  uci add_list dhcp.usb0.dhcp_option='3'
+  uci add_list dhcp.usb0.dhcp_option='6'
   uci commit dhcp
 
   # mDNS advertisement so WiFi Explorer Pi (iOS) finds the device. Per
