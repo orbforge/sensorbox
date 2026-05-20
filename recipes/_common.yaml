@@ -62,6 +62,12 @@ defaults: |
   ORB_HOSTNAME="Orb-$(printf '%04d' $((RANDOM % 10000)))"
   uci -q get system.@system[0] >/dev/null || uci add system system >/dev/null
   uci set system.@system[0].hostname="$ORB_HOSTNAME"
+  # Require login on TTY / serial console. Without this, anyone with
+  # physical UART access can drop straight to a root shell (the stock
+  # `askfirst:/usr/libexec/login.sh` shim auto-launches a shell unless
+  # ttylogin is set). With it, the console always goes through /bin/login
+  # and respects /etc/shadow. See https://openwrt.org/docs/guide-user/security/openwrt_security.
+  uci set system.@system[0].ttylogin='1'
   uci commit system
 
   # Persist the Orb apk feed on the running device so orb-update can
