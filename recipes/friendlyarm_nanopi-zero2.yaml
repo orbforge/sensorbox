@@ -59,6 +59,7 @@ options:
         label: "Enabled — NCM gadget + WiFi Explorer Pi discovery"
         packages:
           - avahi-daemon
+          - uhttpd
 
 packages:
   - orb
@@ -87,6 +88,8 @@ install_notes: |
   6. Plug ethernet into your network.
 
   **USB-C diagnostic mode** (if selected): plug a USB-C cable from the Zero2 into an iPhone. The iPhone gets a DHCP lease on `192.168.42.0/24` and reaches the device at `192.168.42.1` over the USB link. WiFi Explorer Pi (iOS) auto-discovers the device via mDNS (`_ssh._tcp` + TXT `id=wlanpi`) and drives capture over SSH. The diagnostic mode is most useful with the **Intel BE200** Wi-Fi module installed — without a Wi-Fi card there's nothing for the iOS app to capture on.
+
+  Before opening WiFi Explorer Pi, navigate to `http://192.168.42.1/orb-capture/` from the iPhone browser and tap **Enable Monitor Mode** — this releases netifd's hold on `wlan0` so the iOS app's capture script can take it over. When done, tap **Restore Normal Wi-Fi** to put `wlan0` back into client mode (Orb resumes).
 
 defaults: |
   # Single ethernet port as DHCP client (Zero2 has only eth0).
@@ -117,7 +120,7 @@ defaults: |
   {{#usb_diagnostic_enabled}}
   # USB-C iPhone-tethered diagnostic mode.
   #
-  # Three pieces:
+  # Four pieces:
   #   1. /etc/init.d/orb-forge-gadget — configures the NCM USB gadget at
   #      boot via configfs and brings up usb0 with a static address.
   #   2. usb0 network + dhcp config — gives the iPhone a DHCP lease.
@@ -125,6 +128,12 @@ defaults: |
   #      reaches dropbear (which listens on all interfaces by default).
   #   3. /etc/avahi/services/wlanpi.service — advertises _ssh._tcp with
   #      TXT id=wlanpi so WiFi Explorer Pi (iOS) discovers the device.
+  #   4. /www/orb-capture/ — small web UI on http://192.168.42.1/orb-capture/
+  #      with buttons to switch wlan0 between client mode (Orb) and
+  #      capture-ready mode (WiFi Explorer Pi). The user taps the toggle
+  #      before/after capturing; explicit mode switch keeps wlan0 in
+  #      normal Wi-Fi for Orb the rest of the time. CGI handlers gated to
+  #      192.168.42.0/24 source IPs (the USB subnet) via REMOTE_ADDR check.
 
   cat > /etc/init.d/orb-forge-gadget <<'GADGET_INIT'
   #!/bin/sh /etc/rc.common
@@ -262,4 +271,76 @@ defaults: |
   # Enable + (re)start avahi so it picks up the service file.
   /etc/init.d/avahi-daemon enable
   /etc/init.d/avahi-daemon restart 2>/dev/null || /etc/init.d/avahi-daemon start
+
+  # Web UI: monitor-mode toggle for WiFi Explorer Pi flows.
+  mkdir -p /www/orb-capture /www/cgi-bin
+
+  cat > /www/orb-capture/index.html <<'CAPTURE_HTML'
+  <!doctype html>
+  <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orb Capture Mode</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 2em; text-align: center; }
+    button { font-size: 1.2em; padding: 1em 2em; margin: 1em; border-radius: 8px; border: none; color: white; cursor: pointer; }
+    .on { background: #c33; } .off { background: #393; }
+    #status { margin-top: 2em; font-family: monospace; white-space: pre; text-align: left; max-width: 40em; margin-left: auto; margin-right: auto; }
+  </style></head>
+  <body>
+  <h1>Orb Capture Mode</h1>
+  <p>Use before opening WiFi Explorer Pi.</p>
+  <button class="on" onclick="hit('/cgi-bin/monitor-on')">Enable Monitor Mode</button>
+  <button class="off" onclick="hit('/cgi-bin/monitor-off')">Restore Normal Wi-Fi</button>
+  <div id="status"></div>
+  <script>
+  async function hit(url) {
+    document.getElementById('status').textContent = 'Running ' + url + ' ...';
+    const r = await fetch(url, { method: 'POST' });
+    const t = await r.text();
+    document.getElementById('status').textContent = t;
+  }
+  </script>
+  </body></html>
+  CAPTURE_HTML
+
+  cat > /www/cgi-bin/monitor-on <<'MONITOR_ON'
+  #!/bin/sh
+  echo "Content-Type: text/plain"
+  echo
+  case "$REMOTE_ADDR" in 192.168.42.*) ;;
+      *) echo "403: USB-tethered network only ($REMOTE_ADDR)"; exit ;; esac
+  ubus call network.wireless down 2>&1
+  sleep 1
+  PHY=$(ls /sys/class/ieee80211/ 2>/dev/null | head -1)
+  [ -n "$PHY" ] && [ ! -d /sys/class/net/wlan0 ] && \
+      iw phy "$PHY" interface add wlan0 type managed
+  echo "OK monitor mode ready"
+  iw dev
+  MONITOR_ON
+
+  cat > /www/cgi-bin/monitor-off <<'MONITOR_OFF'
+  #!/bin/sh
+  echo "Content-Type: text/plain"
+  echo
+  case "$REMOTE_ADDR" in 192.168.42.*) ;;
+      *) echo "403: USB-tethered network only ($REMOTE_ADDR)"; exit ;; esac
+  iw dev wlan0 del 2>/dev/null
+  for mon in $(iw dev | awk '/Interface/{print $2}' | grep '^itb'); do
+      iw dev "$mon" del 2>/dev/null
+  done
+  ubus call network.wireless up 2>&1
+  echo "OK restored"
+  sleep 2
+  iw dev
+  MONITOR_OFF
+
+  chmod +x /www/cgi-bin/monitor-on /www/cgi-bin/monitor-off
+
+  # uhttpd: ensure CGI dispatch + the standard /www docroot. Default install
+  # config already covers this on OpenWrt, but make it explicit and safe to
+  # re-run (`uci -q delete` ignores missing keys).
+  uci -q set uhttpd.main.home='/www'
+  uci -q set uhttpd.main.cgi_prefix='/cgi-bin'
+  uci commit uhttpd
+  /etc/init.d/uhttpd enable
+  /etc/init.d/uhttpd restart 2>/dev/null || /etc/init.d/uhttpd start
   {{/usb_diagnostic_enabled}}
