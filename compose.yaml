@@ -43,6 +43,12 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      # ASU's default cap on the `defaults` field is 20480 chars. Our
+      # rendered first-boot script (common + recipe + extras) is
+      # already ~22 KB once Tailscale + the orb-capture web UI are
+      # included. Bump generously so we have room for follow-on
+      # features without re-tripping this validation.
+      MAX_DEFAULTS_LENGTH: "65536"
     volumes:
       - ${PUBLIC_PATH}/store:${PUBLIC_PATH}/store:ro
       - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
@@ -62,6 +68,7 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      MAX_DEFAULTS_LENGTH: "65536"
     volumes:
       - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
       - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
