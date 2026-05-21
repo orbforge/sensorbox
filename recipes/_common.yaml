@@ -99,7 +99,6 @@ defaults: |
   #   --hostname     = the auto-generated Orb-NNNN
   #   --ssh          = Tailscale SSH on; access via tailnet identity
   #                    without exposing dropbear publicly
-  #   --advertise-tags=tag:sensorbox  (must be declared in your ACL)
   /etc/init.d/tailscale enable 2>/dev/null || true
 
   cat > /etc/init.d/orb-tailscale-up <<'TAILSCALE_INIT'
@@ -141,8 +140,7 @@ defaults: |
           OUTPUT=$(tailscale up \
               --auth-key='{{{tailscale_auth_key}}}' \
               --hostname="$(uci get system.@system[0].hostname)" \
-              --ssh \
-              --advertise-tags=tag:sensorbox 2>&1)
+              --ssh 2>&1)
           rc=$?
           printf '%s\n' "$OUTPUT" | redact > "$LOG_FILE"
 
