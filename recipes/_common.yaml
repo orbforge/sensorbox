@@ -76,20 +76,30 @@ defaults: |
   # uci-defaults runs BEFORE network is up, so we can't call
   # `tailscale up` here directly — it needs DNS + outbound to
   # login.tailscale.com. Instead, drop a one-shot init.d service that
-  # runs after boot completes, waits for the tailscaled socket and a
-  # ping-able internet, then runs `tailscale up`. On success the
-  # script disables and deletes itself; on failure it stays enabled
-  # and retries next boot.
+  # runs after boot completes and authenticates via the auth key.
   #
-  # The auth key is burned in here at build time. Reflash to change.
-  # Both this uci-defaults script and the orb-tailscale-up init.d are
-  # deleted after first boot, so the key is on disk only briefly.
+  # Hardening choices:
+  #   - In-boot retry with backoff (6 attempts over ~10 min) so
+  #     transient network failures don't permanently brick the join.
+  #   - Output is captured and the auth key redacted with sed before
+  #     logging, in case a future tailscale CLI version echoes the
+  #     key back in error messages.
+  #   - After all retries exhausted, the script self-deletes — the
+  #     auth key does NOT sit on disk forever waiting for a future
+  #     manual recovery. Trade-off: a user who flashes without internet,
+  #     then connects later, won't auto-join — they reflash or run
+  #     `tailscale up` manually. We chose key-hygiene over self-heal.
+  #
+  # On success, both this script and (separately) the uci-defaults
+  # framework's deletion of 99-asu-defaults wipe the key from disk.
+  # tailscaled.state persists, holding only the derived node/machine
+  # keys — not the original tskey-auth-* string.
   #
   # Opinionated defaults baked into the `tailscale up` invocation:
   #   --hostname     = the auto-generated Orb-NNNN
   #   --ssh          = Tailscale SSH on; access via tailnet identity
   #                    without exposing dropbear publicly
-  #   --advertise-tags=tag:sensorbox
+  #   --advertise-tags=tag:sensorbox  (must be declared in your ACL)
   /etc/init.d/tailscale enable 2>/dev/null || true
 
   cat > /etc/init.d/orb-tailscale-up <<'TAILSCALE_INIT'
@@ -97,29 +107,66 @@ defaults: |
   START=99
   STOP=
 
+  MAX_ATTEMPTS=6
+  LOG_FILE=/tmp/tailscale-up.log
+
+  redact() {
+      # Strip any tskey-auth-XXX strings from captured output before
+      # logging. Defensive — current tailscale doesn't echo the key,
+      # but a future error message could.
+      sed -E 's/tskey-auth-[A-Za-z0-9_-]+/tskey-auth-REDACTED/g'
+  }
+
   boot() {
       # Wait for tailscaled socket (up to 30s).
       for i in $(seq 1 30); do
           [ -S /var/run/tailscale/tailscaled.sock ] && break
           sleep 1
       done
-      # Wait for outbound connectivity (up to 60s).
-      for i in $(seq 1 60); do
-          ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
-          sleep 1
+
+      attempt=0
+      while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+          attempt=$((attempt + 1))
+
+          # Per-attempt: wait briefly for outbound connectivity. Skips
+          # quickly when net is already up; gives up to 30s on a fresh
+          # boot before connectivity is fully settled.
+          for i in $(seq 1 30); do
+              ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
+              sleep 1
+          done
+
+          # Capture combined output, redact any echoed auth keys, write
+          # to the log file. Exit status comes from tailscale itself.
+          OUTPUT=$(tailscale up \
+              --auth-key='{{{tailscale_auth_key}}}' \
+              --hostname="$(uci get system.@system[0].hostname)" \
+              --ssh \
+              --advertise-tags=tag:sensorbox 2>&1)
+          rc=$?
+          printf '%s\n' "$OUTPUT" | redact > "$LOG_FILE"
+
+          if [ "$rc" -eq 0 ]; then
+              logger -t orb-tailscale "joined tailnet (attempt $attempt/$MAX_ATTEMPTS)"
+              /etc/init.d/orb-tailscale-up disable 2>/dev/null
+              rm -f /etc/init.d/orb-tailscale-up
+              return 0
+          fi
+
+          # Log redacted error.
+          SAFE_OUTPUT=$(printf '%s' "$OUTPUT" | redact | head -3 | tr '\n' ' ')
+          logger -t orb-tailscale "attempt $attempt/$MAX_ATTEMPTS failed (rc=$rc): $SAFE_OUTPUT"
+
+          # Backoff: 30s, 60s, 120s, 240s, 480s between retries. Skip
+          # sleep on the last attempt.
+          if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((30 * (1 << (attempt - 1))))
+          fi
       done
-      if tailscale up \
-          --auth-key='{{{tailscale_auth_key}}}' \
-          --hostname="$(uci get system.@system[0].hostname)" \
-          --ssh \
-          --advertise-tags=tag:sensorbox \
-          >/tmp/tailscale-up.log 2>&1; then
-          logger -t orb-tailscale "joined tailnet"
-          /etc/init.d/orb-tailscale-up disable 2>/dev/null
-          rm -f /etc/init.d/orb-tailscale-up
-      else
-          logger -t orb-tailscale "tailscale up failed; will retry next boot"
-      fi
+
+      logger -t orb-tailscale "exhausted $MAX_ATTEMPTS attempts; removing init.d so auth key isn't left on disk. Run \`tailscale up\` manually or reflash to retry."
+      /etc/init.d/orb-tailscale-up disable 2>/dev/null
+      rm -f /etc/init.d/orb-tailscale-up
   }
   TAILSCALE_INIT
   chmod +x /etc/init.d/orb-tailscale-up
