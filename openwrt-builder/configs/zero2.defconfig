@@ -14,5 +14,13 @@ CONFIG_TARGET_ROOTFS_PARTSIZE=2048
 CONFIG_TARGET_KERNEL_PARTSIZE=32
 
 # Kernel modules that must be compiled locally (must match our kernel
-# version). User-space packages come from upstream snapshot repos.
+# version). User-space packages come from upstream snapshot repos,
+# but kmods are kernel-hash-tied and the upstream feed doesn't ship
+# kmods built against our custom-kernel hash. Every kmod a userspace
+# package might depend on has to be selected here so it lands in the
+# buildroot's local feed and ASU can resolve it.
 CONFIG_PACKAGE_kmod-iwlwifi=y
+# kmod-tun: required by tailscale (TUN/TAP for the tailscale0 iface).
+# tailscale's package declares this as a hard dep — without it,
+# ASU rejects the build with "missing kmod-tun".
+CONFIG_PACKAGE_kmod-tun=y
