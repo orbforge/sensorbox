@@ -124,6 +124,13 @@ defaults: |
   TAILSCALE_INIT
   chmod +x /etc/init.d/orb-tailscale-up
   /etc/init.d/orb-tailscale-up enable
+  # procd has already iterated past START=99 by the time uci-defaults
+  # runs, so the symlink we just created isn't visible to procd's
+  # first-boot service-startup pass. Without this explicit invocation,
+  # the device wouldn't join the tailnet until the next reboot.
+  # Backgrounded so uci-defaults still exits 0 and gets deleted.
+  # Same pattern as orb-forge-installer and orb-forge-gadget.
+  /etc/rc.common /etc/init.d/orb-tailscale-up boot &
   {{/tailscale_enabled}}
 
   # Persist the Orb apk feed on the running device so orb-update can
