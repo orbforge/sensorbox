@@ -24,3 +24,19 @@ CONFIG_PACKAGE_kmod-iwlwifi=y
 # tailscale's package declares this as a hard dep — without it,
 # ASU rejects the build with "missing kmod-tun".
 CONFIG_PACKAGE_kmod-tun=y
+
+# Docker kmod deps. dockerd hard-depends on this whole set; iptables-nft
+# and friends drag in the rest via their own dependency chains. Selecting
+# all of them here lets the user check "Install Docker" in the form
+# without ASU bailing with "missing kmod-*" at build time.
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-br-netfilter=y
+CONFIG_PACKAGE_kmod-ipt-nat=y
+CONFIG_PACKAGE_kmod-ipt-nat6=y
+CONFIG_PACKAGE_kmod-ipt-physdev=y
+CONFIG_PACKAGE_kmod-nf-ipvs=y
+CONFIG_PACKAGE_kmod-ipt-core=y
+CONFIG_PACKAGE_kmod-ipt-extra=y
+CONFIG_PACKAGE_kmod-ip6tables=y
+CONFIG_PACKAGE_kmod-nft-compat=y
+CONFIG_PACKAGE_kmod-fs-btrfs=y

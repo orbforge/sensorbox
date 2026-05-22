@@ -178,6 +178,14 @@ defaults: |
   /etc/rc.common /etc/init.d/orb-tailscale-up boot &
   {{/tailscale_enabled}}
 
+  {{#docker_enabled}}
+  # Docker: package install was handled by ASU (added to packages list
+  # when the form's "Install Docker" was checked). The package's init.d
+  # may not be auto-enabled on install, so do it here. dockerd starts
+  # at boot from then on; users SSH in to run containers.
+  /etc/init.d/dockerd enable 2>/dev/null || true
+  {{/docker_enabled}}
+
   # Persist the Orb apk feed on the running device so orb-update can
   # actually fetch new Orb versions at runtime. ASU consumes this feed
   # at image-build time via the build request's `repositories` field,
