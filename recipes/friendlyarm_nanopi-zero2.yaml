@@ -89,7 +89,7 @@ install_notes: |
 
   **USB-C diagnostic mode** (if selected): plug a USB-C cable from the Zero2 into an iPhone. The iPhone gets a DHCP lease on `192.168.42.0/24` and reaches the device at `192.168.42.1` over the USB link. WiFi Explorer Pi (iOS) auto-discovers the device via mDNS (`_ssh._tcp` + TXT `id=wlanpi`) and drives capture over SSH. The diagnostic mode is most useful with the **Intel BE200** Wi-Fi module installed — without a Wi-Fi card there's nothing for the iOS app to capture on.
 
-  Before opening WiFi Explorer Pi, navigate to `http://192.168.42.1/orb-capture/` from the iPhone browser and tap **Enable Monitor Mode** — this releases netifd's hold on `wlan0` so the iOS app's capture script can take it over. When done, tap **Restore Normal Wi-Fi** to put `wlan0` back into client mode (Orb resumes).
+  Before opening WiFi Explorer Pi, navigate to `http://192.168.42.1/` from the iPhone browser and tap **Enable Monitor Mode** — this releases netifd's hold on `wlan0` so the iOS app's capture script can take it over. When done, tap **Restore Normal Wi-Fi** to put `wlan0` back into client mode (Orb resumes).
 
 defaults: |
   # Single ethernet port as DHCP client (Zero2 has only eth0).
@@ -128,8 +128,8 @@ defaults: |
   #      reaches dropbear (which listens on all interfaces by default).
   #   3. /etc/avahi/services/wlanpi.service — advertises _ssh._tcp with
   #      TXT id=wlanpi so WiFi Explorer Pi (iOS) discovers the device.
-  #   4. /www/orb-capture/ — small web UI on http://192.168.42.1/orb-capture/
-  #      with buttons to switch wlan0 between client mode (Orb) and
+  #   4. /www/index.html — small web UI at http://192.168.42.1/ with
+  #      buttons to switch wlan0 between client mode (Orb) and
   #      capture-ready mode (WiFi Explorer Pi). The user taps the toggle
   #      before/after capturing; explicit mode switch keeps wlan0 in
   #      normal Wi-Fi for Orb the rest of the time. CGI handlers gated to
@@ -272,10 +272,11 @@ defaults: |
   /etc/init.d/avahi-daemon enable
   /etc/init.d/avahi-daemon restart 2>/dev/null || /etc/init.d/avahi-daemon start
 
-  # Web UI: monitor-mode toggle for WiFi Explorer Pi flows.
-  mkdir -p /www/orb-capture /www/cgi-bin
+  # Web UI: monitor-mode toggle for WiFi Explorer Pi flows. Served at
+  # http://192.168.42.1/ (root) so the iPhone Safari URL is short.
+  mkdir -p /www/cgi-bin
 
-  cat > /www/orb-capture/index.html <<'CAPTURE_HTML'
+  cat > /www/index.html <<'CAPTURE_HTML'
   <!doctype html>
   <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orb Capture Mode</title>
