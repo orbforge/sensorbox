@@ -132,7 +132,7 @@ defaults: |
   # USB-C iPhone-tethered diagnostic mode.
   #
   # Four pieces:
-  #   1. /etc/init.d/orb-forge-gadget — configures the NCM USB gadget at
+  #   1. /etc/init.d/sensorbox-gadget — configures the NCM USB gadget at
   #      boot via configfs and brings up usb0 with a static address.
   #   2. usb0 network + dhcp config — gives the iPhone a DHCP lease.
   #      usb0 is added to the lan firewall zone so SSH from the iPhone
@@ -180,7 +180,7 @@ defaults: |
   setcap cap_net_raw+ep /usr/bin/tcpdump 2>/dev/null || true
   setcap cap_net_admin,cap_net_raw+ep /usr/sbin/iw 2>/dev/null || true
 
-  cat > /etc/init.d/orb-forge-gadget <<'GADGET_INIT'
+  cat > /etc/init.d/sensorbox-gadget <<'GADGET_INIT'
   #!/bin/sh /etc/rc.common
   # Mount configfs, build the NCM gadget, bind it to the dwc3 UDC, bring
   # usb0 up. Idempotent — re-running is a no-op.
@@ -199,14 +199,14 @@ defaults: |
           mount -t configfs none /sys/kernel/config 2>/dev/null
 
       [ -d /sys/kernel/config/usb_gadget ] || {
-          logger -t orb-forge-gadget "usb_gadget configfs subsystem not registered; aborting"
+          logger -t sensorbox-gadget "usb_gadget configfs subsystem not registered; aborting"
           return 1
       }
 
       # Pick the first UDC (typically fe500000.usb on the Zero2).
       UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
       [ -n "$UDC" ] || {
-          logger -t orb-forge-gadget "no UDC available; aborting"
+          logger -t sensorbox-gadget "no UDC available; aborting"
           return 1
       }
 
@@ -244,7 +244,7 @@ defaults: |
           sleep 1
       done
       ifup usb0 2>/dev/null || true
-      logger -t orb-forge-gadget "gadget configured; bound to $UDC"
+      logger -t sensorbox-gadget "gadget configured; bound to $UDC"
   }
 
   stop_service() {
@@ -253,8 +253,8 @@ defaults: |
       ifdown usb0 2>/dev/null || true
   }
   GADGET_INIT
-  chmod +x /etc/init.d/orb-forge-gadget
-  /etc/init.d/orb-forge-gadget enable
+  chmod +x /etc/init.d/sensorbox-gadget
+  /etc/init.d/sensorbox-gadget enable
   # procd scans /etc/rc.d/ for services *before* uci-defaults runs at
   # first boot, so the S85 symlink we just created isn't visible to
   # procd's startup pass. Without an explicit invocation here, the
@@ -262,7 +262,7 @@ defaults: |
   # symlink is in place. Backgrounded so uci-defaults can still exit 0
   # and be deleted normally. Mirrors the eMMC installer pattern in
   # _common.yaml.
-  /etc/rc.common /etc/init.d/orb-forge-gadget boot &
+  /etc/rc.common /etc/init.d/sensorbox-gadget boot &
 
   # usb0 as a static interface, in the lan firewall zone so SSH from the
   # iPhone is accepted (dropbear binds all ifaces by default; usb0 just

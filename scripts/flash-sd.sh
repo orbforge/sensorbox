@@ -14,7 +14,7 @@
 set -euo pipefail
 
 STORE_DIR="$(cd "$(dirname "$0")/.." && pwd)/public/store"
-LOCAL_DIR="/tmp/orb-forge-flash"
+LOCAL_DIR="/tmp/sensorbox-flash"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 

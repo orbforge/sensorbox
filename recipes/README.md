@@ -65,7 +65,7 @@ The copy is **not** a full `dd` of the live SD card. It copies only the *static*
 
 The installer also includes runtime guards so it's safe to leave enabled on every boot:
 
-- Skips if `/etc/orb-forge-installed` exists (sentinel — already installed on this filesystem)
+- Skips if `/etc/sensorbox-installed` exists (sentinel — already installed on this filesystem)
 - Skips if the eMMC block device isn't present (handles E20C variants without onboard flash)
 - Skips if no SD is inserted (post-install eMMC boots)
 - On failure, sets the SYS LED to fast-blink and leaves the service enabled so the next boot retries

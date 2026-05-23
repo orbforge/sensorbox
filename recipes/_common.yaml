@@ -101,7 +101,7 @@ defaults: |
   #                    without exposing dropbear publicly
   /etc/init.d/tailscale enable 2>/dev/null || true
 
-  cat > /etc/init.d/orb-tailscale-up <<'TAILSCALE_INIT'
+  cat > /etc/init.d/sensorbox-tailscale-up <<'TAILSCALE_INIT'
   #!/bin/sh /etc/rc.common
   START=99
   STOP=
@@ -145,15 +145,15 @@ defaults: |
           printf '%s\n' "$OUTPUT" | redact > "$LOG_FILE"
 
           if [ "$rc" -eq 0 ]; then
-              logger -t orb-tailscale "joined tailnet (attempt $attempt/$MAX_ATTEMPTS)"
-              /etc/init.d/orb-tailscale-up disable 2>/dev/null
-              rm -f /etc/init.d/orb-tailscale-up
+              logger -t sensorbox-tailscale "joined tailnet (attempt $attempt/$MAX_ATTEMPTS)"
+              /etc/init.d/sensorbox-tailscale-up disable 2>/dev/null
+              rm -f /etc/init.d/sensorbox-tailscale-up
               return 0
           fi
 
           # Log redacted error.
           SAFE_OUTPUT=$(printf '%s' "$OUTPUT" | redact | head -3 | tr '\n' ' ')
-          logger -t orb-tailscale "attempt $attempt/$MAX_ATTEMPTS failed (rc=$rc): $SAFE_OUTPUT"
+          logger -t sensorbox-tailscale "attempt $attempt/$MAX_ATTEMPTS failed (rc=$rc): $SAFE_OUTPUT"
 
           # Backoff: 30s, 60s, 120s, 240s, 480s between retries. Skip
           # sleep on the last attempt.
@@ -162,20 +162,20 @@ defaults: |
           fi
       done
 
-      logger -t orb-tailscale "exhausted $MAX_ATTEMPTS attempts; removing init.d so auth key isn't left on disk. Run \`tailscale up\` manually or reflash to retry."
-      /etc/init.d/orb-tailscale-up disable 2>/dev/null
-      rm -f /etc/init.d/orb-tailscale-up
+      logger -t sensorbox-tailscale "exhausted $MAX_ATTEMPTS attempts; removing init.d so auth key isn't left on disk. Run \`tailscale up\` manually or reflash to retry."
+      /etc/init.d/sensorbox-tailscale-up disable 2>/dev/null
+      rm -f /etc/init.d/sensorbox-tailscale-up
   }
   TAILSCALE_INIT
-  chmod +x /etc/init.d/orb-tailscale-up
-  /etc/init.d/orb-tailscale-up enable
+  chmod +x /etc/init.d/sensorbox-tailscale-up
+  /etc/init.d/sensorbox-tailscale-up enable
   # procd has already iterated past START=99 by the time uci-defaults
   # runs, so the symlink we just created isn't visible to procd's
   # first-boot service-startup pass. Without this explicit invocation,
   # the device wouldn't join the tailnet until the next reboot.
   # Backgrounded so uci-defaults still exits 0 and gets deleted.
-  # Same pattern as orb-forge-installer and orb-forge-gadget.
-  /etc/rc.common /etc/init.d/orb-tailscale-up boot &
+  # Same pattern as sensorbox-installer and sensorbox-gadget.
+  /etc/rc.common /etc/init.d/sensorbox-tailscale-up boot &
   {{/tailscale_enabled}}
 
   {{#docker_enabled}}
@@ -245,11 +245,11 @@ defaults: |
   chmod +x /usr/bin/scandump
 
   # Pre-pull init.d. Same retry/backoff/self-delete pattern as
-  # orb-tailscale-up: dockerd takes a moment to come up, the device may
+  # sensorbox-tailscale-up: dockerd takes a moment to come up, the device may
   # not have internet at first boot, and we don't want a daemon that
   # tries to pull forever. If the prepull fails, the wrapper still
   # works — the first manual `scandump` call just pulls on demand.
-  cat > /etc/init.d/orb-docker-prepull <<'PREPULL_INIT'
+  cat > /etc/init.d/sensorbox-docker-prepull <<'PREPULL_INIT'
   #!/bin/sh /etc/rc.common
   START=99
   STOP=
@@ -265,9 +265,9 @@ defaults: |
       done
 
       if ! docker info >/dev/null 2>&1; then
-          logger -t orb-docker-prepull "dockerd not ready after 60s; giving up"
-          /etc/init.d/orb-docker-prepull disable 2>/dev/null
-          rm -f /etc/init.d/orb-docker-prepull
+          logger -t sensorbox-docker-prepull "dockerd not ready after 60s; giving up"
+          /etc/init.d/sensorbox-docker-prepull disable 2>/dev/null
+          rm -f /etc/init.d/sensorbox-docker-prepull
           return 1
       fi
 
@@ -275,12 +275,12 @@ defaults: |
       while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
           attempt=$((attempt + 1))
           if docker pull "$IMAGE" >/dev/null 2>&1; then
-              logger -t orb-docker-prepull "pulled $IMAGE (attempt $attempt/$MAX_ATTEMPTS)"
-              /etc/init.d/orb-docker-prepull disable 2>/dev/null
-              rm -f /etc/init.d/orb-docker-prepull
+              logger -t sensorbox-docker-prepull "pulled $IMAGE (attempt $attempt/$MAX_ATTEMPTS)"
+              /etc/init.d/sensorbox-docker-prepull disable 2>/dev/null
+              rm -f /etc/init.d/sensorbox-docker-prepull
               return 0
           fi
-          logger -t orb-docker-prepull "attempt $attempt/$MAX_ATTEMPTS failed"
+          logger -t sensorbox-docker-prepull "attempt $attempt/$MAX_ATTEMPTS failed"
 
           # Backoff: 30s, 60s, 120s, 240s, 480s between retries.
           if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
@@ -288,16 +288,16 @@ defaults: |
           fi
       done
 
-      logger -t orb-docker-prepull "exhausted $MAX_ATTEMPTS attempts; first scandump call will pull on demand"
-      /etc/init.d/orb-docker-prepull disable 2>/dev/null
-      rm -f /etc/init.d/orb-docker-prepull
+      logger -t sensorbox-docker-prepull "exhausted $MAX_ATTEMPTS attempts; first scandump call will pull on demand"
+      /etc/init.d/sensorbox-docker-prepull disable 2>/dev/null
+      rm -f /etc/init.d/sensorbox-docker-prepull
   }
   PREPULL_INIT
-  chmod +x /etc/init.d/orb-docker-prepull
-  /etc/init.d/orb-docker-prepull enable
-  # Same backgrounded boot-invocation trick as orb-tailscale-up — procd
+  chmod +x /etc/init.d/sensorbox-docker-prepull
+  /etc/init.d/sensorbox-docker-prepull enable
+  # Same backgrounded boot-invocation trick as sensorbox-tailscale-up — procd
   # has already iterated past START=99 by the time uci-defaults runs.
-  /etc/rc.common /etc/init.d/orb-docker-prepull boot &
+  /etc/rc.common /etc/init.d/sensorbox-docker-prepull boot &
   {{/scandump_enabled}}
 
   # Persist the Orb apk feed on the running device so orb-update can
@@ -430,7 +430,7 @@ defaults: |
   # loop0's size (the running squashfs) and mmcblk1p2's start offset,
   # and signals status on the physical SYS LED. Does NOT touch the
   # overlay tail, so no live-filesystem risk.
-  cat > /etc/init.d/orb-forge-installer <<'ORB_INSTALLER_EOF'
+  cat > /etc/init.d/sensorbox-installer <<'SENSORBOX_INSTALLER_EOF'
   #!/bin/sh /etc/rc.common
   START=20
   STOP=
@@ -597,15 +597,15 @@ defaults: |
       while IFS= read -r line; do log "dd: $line"; done < "$dd_log" 2>/dev/null
       return 1
   }
-  ORB_INSTALLER_EOF
-  chmod +x /etc/init.d/orb-forge-installer
-  /etc/init.d/orb-forge-installer enable
+  SENSORBOX_INSTALLER_EOF
+  chmod +x /etc/init.d/sensorbox-installer
+  /etc/init.d/sensorbox-installer enable
   # Invoke directly — procd may have already iterated past START=20
   # by the time uci-defaults created this service, so we can't rely
   # on it being picked up in the same boot cycle. Backgrounded so
   # uci-defaults can exit 0 and be deleted. The service stays enabled
   # as a fallback for retry on next boot if this invocation fails.
-  /etc/rc.common /etc/init.d/orb-forge-installer boot &
+  /etc/rc.common /etc/init.d/sensorbox-installer boot &
   {{/install_to_emmc}}
 
   {{#telemetry_enabled}}
