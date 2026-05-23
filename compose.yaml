@@ -37,7 +37,7 @@ services:
     build:
       context: ./asu
       dockerfile: Containerfile
-    image: localhost/orb-forge/asu:orb-patches
+    image: localhost/sensorbox/asu:orb-patches
     restart: unless-stopped
     command: uv run uvicorn --host 0.0.0.0 asu.main:app
     env_file: .env
@@ -62,7 +62,7 @@ services:
     build:
       context: ./asu
       dockerfile: Containerfile
-    image: localhost/orb-forge/asu:orb-patches
+    image: localhost/sensorbox/asu:orb-patches
     restart: unless-stopped
     command: uv run rqworker --logging_level INFO
     env_file: .env

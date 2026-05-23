@@ -218,7 +218,7 @@ defaults: |
           echo 0x0200 > "$GADGET_DIR/bcdUSB"
 
           mkdir -p "$GADGET_DIR/strings/0x409"
-          echo "orb-forge"        > "$GADGET_DIR/strings/0x409/manufacturer"
+          echo "sensorbox"        > "$GADGET_DIR/strings/0x409/manufacturer"
           echo "Sensorbox Zero2"  > "$GADGET_DIR/strings/0x409/product"
           cat /proc/sys/kernel/random/uuid | tr -d '-' > "$GADGET_DIR/strings/0x409/serialnumber"
 

@@ -1,4 +1,4 @@
-"""orb-forge custom ImageBuilder builder service.
+"""sensorbox custom ImageBuilder builder service.
 
 Always-running API that builds OpenWrt ImageBuilder containers on
 demand for devices needing custom kernel patches / DTS. Triggered
@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("openwrt-builder")
 
-app = FastAPI(title="orb-forge OpenWrt Builder")
+app = FastAPI(title="sensorbox OpenWrt Builder")
 
 # Load builder configs from branches.yaml
 BRANCHES_FILE = os.environ.get("BRANCHES_FILE", "/app/branches.yaml")

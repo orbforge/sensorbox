@@ -1,6 +1,6 @@
 # Recipes
 
-A recipe is a single YAML file describing a device that orb-forge can build an image for. Recipes are how orb-forge stays opinionated while remaining community-extensible — adding support for a new device means adding a file here, not writing code.
+A recipe is a single YAML file describing a device that sensorbox can build an image for. Recipes are how sensorbox stays opinionated while remaining community-extensible — adding support for a new device means adding a file here, not writing code.
 
 ## What a recipe does
 
@@ -13,7 +13,7 @@ At build time, the firmware-selector reads every recipe in this directory, shows
 
 The selector concatenates three things into the final `defaults` script sent to ASU:
 
-1. `_common.yaml`'s `defaults` — orb-forge-wide invariants (Orb token injection, Orb apk feed persistence, root password, hostname, `orb-update install`).
+1. `_common.yaml`'s `defaults` — sensorbox-wide invariants (Orb token injection, Orb apk feed persistence, root password, hostname, `orb-update install`).
 2. The device recipe's `defaults` — hardware-specific configuration.
 3. The user's "Additional uci-defaults (advanced)" textarea, if non-empty.
 
@@ -55,7 +55,7 @@ Capabilities describe what hardware the device has, and the UI uses them to deci
 |---------|------|-----------------------------------------------------------------------------------------|
 | `wifi`  | bool | When true, the selector renders Wi-Fi SSID, password, encryption, and band form inputs. |
 
-The mandatory form fields — **Orb Deployment Token** and **Root Password** — are always present and always required. These are not capabilities; they are orb-forge invariants.
+The mandatory form fields — **Orb Deployment Token** and **Root Password** — are always present and always required. These are not capabilities; they are sensorbox invariants.
 
 ## Install to onboard flash (`install` block)
 
@@ -118,7 +118,7 @@ uci-defaults scripts run very early in the first boot sequence, **before network
 - `/etc/init.d/network restart` is meaningless in this context — network hasn't started yet. Normal boot picks up your committed config automatically. Don't include these lines in a recipe.
 - Any command that depends on DNS or network is a landmine. If something must run after network is up (first-boot installers, certificate fetches, etc.), drop a procd service that runs at normal init time; don't put the network-dependent command in uci-defaults.
 - Scripts that exit 0 are deleted by OpenWrt after running. Scripts that exit non-zero are retained and retried on the next boot — a rough but useful retry mechanism.
-- The script is written to `/etc/uci-defaults/99-asu-defaults`. It is world-readable until deletion, so the injected Orb token and root password are visible on disk during first boot. This is acceptable because orb-forge devices are ephemeral — reflash, don't reconfigure — but it is worth knowing.
+- The script is written to `/etc/uci-defaults/99-asu-defaults`. It is world-readable until deletion, so the injected Orb token and root password are visible on disk during first boot. This is acceptable because sensorbox devices are ephemeral — reflash, don't reconfigure — but it is worth knowing.
 
 ## Adding a new recipe
 
@@ -126,4 +126,4 @@ uci-defaults scripts run very early in the first boot sequence, **before network
 2. Fill in the required fields, the `capabilities` block if the device has Wi-Fi, and the `defaults` script for hardware-specific setup.
 3. If the device needs additional apk feeds, add them under `repositories` and commit the public keys to `recipes/keys/`.
 4. Test by bringing up the stack and building an image through the browser. Flash to real hardware. GOALS.md explicitly calls out "devices should be set-it-and-forget-it" — if the resulting probe requires manual post-install steps to become useful, the recipe is incomplete.
-5. Open a PR against orb-forge with the new recipe and any matching keys. Describe how you validated it on real hardware.
+5. Open a PR against sensorbox with the new recipe and any matching keys. Describe how you validated it on real hardware.

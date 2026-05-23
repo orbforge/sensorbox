@@ -1,5 +1,5 @@
 #!/bin/bash
-# Flash an orb-forge image to an SD card for local development testing.
+# Flash an sensorbox image to an SD card for local development testing.
 #
 # Usage:
 #   ./scripts/flash-sd.sh <image-substring>

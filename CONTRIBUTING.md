@@ -1,6 +1,6 @@
-# Contributing to orb-forge
+# Contributing to sensorbox
 
-orb-forge builds OpenWrt-based "Orb probe" images that link to an [Orb](https://orb.net) account for persistent internet monitoring. The primary way to contribute is by adding support for a new device through a **recipe** -- a single YAML file in `recipes/` that tells the build system everything it needs to know about the device: which OpenWrt target to build, which packages to include, and what uci-defaults script to run on first boot to configure the hardware.
+sensorbox builds OpenWrt-based "Orb probe" images that link to an [Orb](https://orb.net) account for persistent internet monitoring. The primary way to contribute is by adding support for a new device through a **recipe** -- a single YAML file in `recipes/` that tells the build system everything it needs to know about the device: which OpenWrt target to build, which packages to include, and what uci-defaults script to run on first boot to configure the hardware.
 
 Adding a recipe means a new device shows up in the web UI, can be built into a working Orb probe image, and (if applicable) can auto-install itself to onboard flash. No code changes are needed -- recipes are the extension point.
 
@@ -14,7 +14,7 @@ Before you start, you need:
 
 1. **The physical device.** Recipes must be validated on real hardware. There is no simulator path.
 
-2. **A working orb-forge stack.** Follow the setup instructions in [README.md](README.md) to get the Podman-based stack running (`podman-compose up`). You should be able to open `http://127.0.0.1:8080/` and see the firmware selector UI with the existing devices listed.
+2. **A working sensorbox stack.** Follow the setup instructions in [README.md](README.md) to get the Podman-based stack running (`podman-compose up`). You should be able to open `http://127.0.0.1:8080/` and see the firmware selector UI with the existing devices listed.
 
 3. **An Orb account with a deployment token.** Sign up at [orb.net](https://orb.net), create a deployment token, and have it ready. You will need this to build and test images.
 
@@ -284,9 +284,9 @@ Do not assume `mmcblk0` is always the SD card. On the Radxa E20C, `mmcblk0` is e
 
 ## Submitting your recipe
 
-1. **Branch and commit.** Create a branch in your fork of orb-forge with the new recipe file (`recipes/<profile>.yaml`) and any new signing keys under `recipes/keys/`.
+1. **Branch and commit.** Create a branch in your fork of sensorbox with the new recipe file (`recipes/<profile>.yaml`) and any new signing keys under `recipes/keys/`.
 
-2. **Open a PR against orb-forge.** In the PR description, include:
+2. **Open a PR against sensorbox.** In the PR description, include:
    - The device name and where you purchased it.
    - The OpenWrt version validated (must match the recipe's `version` field).
    - Which items from the testing checklist above you completed, and their results.

@@ -11,7 +11,7 @@ Goal: one supported device (Radxa E20C) built end-to-end from a recipe, through 
 - [ ] Write `recipes/_common.yaml` with the Orb-wide pre-amble: `/etc/config/orb` token injection, `orb-update install`, root password setup via `passwd`.
 - [ ] Commit `recipes/keys/orb-apk-ec.pub` so the key is version-controlled rather than fetched at runtime.
 - [ ] Vendor `js-yaml` and `mustache.js` into `firmware-selector/www/js/vendor/` in the fork (two files, ~27 KB gzipped total).
-- [ ] Fork work: fetch `recipes/*.yaml` via HTTP from the selector's own origin (nginx serves them directly from an orb-forge bind mount into the selector container).
+- [ ] Fork work: fetch `recipes/*.yaml` via HTTP from the selector's own origin (nginx serves them directly from an sensorbox bind mount into the selector container).
 - [ ] Fork work: replace upstream's `.overview.json`-driven device list with a recipe-driven one. Devices without a recipe do not appear.
 - [ ] Fork work: render form fields — Orb Deployment Token (required), Root Password (required), plus capability-gated fields (Wi-Fi SSID/pass/encryption/band if `capabilities.wifi`).
 - [ ] Fork work: collapse the upstream free-form uci-defaults textarea behind an "Advanced" disclosure, renamed "Additional uci-defaults (advanced)." Append-after-recipe semantics.
@@ -43,7 +43,7 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 ## Phase 4 — Custom ImageBuilder pipeline (NanoPi Zero2 unblocker)
 
-- [ ] `openwrt-builder/` directory in orb-forge: holds patches, DTS, profile snippets, and a reproducible build script (`build.sh` or `Dockerfile.builder`).
+- [ ] `openwrt-builder/` directory in sensorbox: holds patches, DTS, profile snippets, and a reproducible build script (`build.sh` or `Dockerfile.builder`).
 - [ ] Populate with the NanoPi Zero2 material referenced in https://github.com/openwrt/openwrt/pull/22707 — the branch in `dboze/openwrt` is the source.
 - [ ] `imagebuilder-host` service in compose: nginx sidecar serving the produced ImageBuilder tarballs so ASU can pull from `http://imagebuilder-host/...` instead of `downloads.openwrt.org`.
 - [ ] ASU configuration path (env or branches.yaml override) that routes specific (version, target) combinations to the local sidecar.
@@ -57,7 +57,7 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 ## Form UX improvements
 
-- [ ] **Confirm Root Password field.** Add a second password input ("Confirm Root Password") below the existing Root Password field and validate on submit that the two values match. Without this, a typo in the root password goes completely unnoticed until the user tries to SSH in and realizes they can't. The check should be pure client-side validation — disable the build button and surface a clear error message when the fields don't match. Matches how every other "set a password" form on the internet works, and orb-forge is opinionated enough that the user shouldn't be able to skip it. Probably also applies to the Orb Deployment Token field since mistyping it silently breaks auto-linking, but the token is long enough that a typo is easier to notice.
+- [ ] **Confirm Root Password field.** Add a second password input ("Confirm Root Password") below the existing Root Password field and validate on submit that the two values match. Without this, a typo in the root password goes completely unnoticed until the user tries to SSH in and realizes they can't. The check should be pure client-side validation — disable the build button and surface a clear error message when the fields don't match. Matches how every other "set a password" form on the internet works, and sensorbox is opinionated enough that the user shouldn't be able to skip it. Probably also applies to the Orb Deployment Token field since mistyping it silently breaks auto-linking, but the token is long enough that a typo is easier to notice.
 - [x] **Per-recipe install instructions + device links.** Three new optional recipe fields: `vendor_url`, `docs_url`, `install_notes`. Vendor and orb.net docs links shown in the device-info area (on selection) and repeated in the download area. OpenWrt wiki link derived from the recipe title (no schema field). `install_notes` rendered as HTML via snarkdown (~2KB markdown parser) in the download area after a successful build. E20C recipe populated with real content including the LED behavior notes and the WAN port link-LED quirk.
 
 ## Recipe authoring ergonomics
@@ -108,7 +108,7 @@ The mechanism is device-specific (which eMMC device node to target, which device
 
 - [ ] Periodic auto-upgrades via the local ASU server, flagged "save for last" in GOALS.md. Requires deciding: does the probe point at our local ASU (LAN-only, doesn't work when the user takes it elsewhere) or a public one? Probably out of scope for homelab-only deployments.
 - [ ] Uplift from `podman compose` + our workaround for macOS resource bumps to a reproducible developer bootstrap script that initializes `podman machine` with the right specs the first time.
-- [ ] Consider moving `_common.yaml` overrides into per-environment files so different operators can have different baked-in settings without forking orb-forge.
+- [ ] Consider moving `_common.yaml` overrides into per-environment files so different operators can have different baked-in settings without forking sensorbox.
 
 ## Design decisions (locked)
 

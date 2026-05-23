@@ -1,4 +1,4 @@
-# orb-forge custom ImageBuilder builder service.
+# sensorbox custom ImageBuilder builder service.
 # Always-running FastAPI app that builds OpenWrt ImageBuilder containers
 # on demand for devices needing custom kernel patches / DTS.
 

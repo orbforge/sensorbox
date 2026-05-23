@@ -128,10 +128,10 @@ defaults: |
       # reboot so they take effect. Marker check makes this idempotent —
       # if we somehow run again with the marker already present, we
       # don't re-edit and don't re-schedule (no boot loop).
-      if [ -f /boot/config.txt ] && ! grep -q '^# orb-forge: ' /boot/config.txt; then
+      if [ -f /boot/config.txt ] && ! grep -q '^# sensorbox: ' /boot/config.txt; then
           cat >> /boot/config.txt <<'CFGTXT_EOF'
 
-  # orb-forge: Intel M.2 card detected; disable onboard Wi-Fi/BT so the
+  # sensorbox: Intel M.2 card detected; disable onboard Wi-Fi/BT so the
   # M.2 BE200 is the only Wi-Fi PHY. Covers both CM4 (Mcuzone-style
   # carrier) and Pi 4B with an M.2 HAT. Also adds a GPIO-26 fan overlay
   # for Mcuzone carriers (harmless on carriers without a fan transistor

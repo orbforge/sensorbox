@@ -1,13 +1,13 @@
-# Shared pre-amble for every orb-forge recipe. The firmware-selector renders
+# Shared pre-amble for every sensorbox recipe. The firmware-selector renders
 # this block's `defaults` with Mustache, prepends it to the device recipe's
 # rendered `defaults`, and sends the concatenation to ASU as the build
 # request's `defaults` field.
 #
-# Everything in here is an orb-forge invariant — true for every device, not
+# Everything in here is an sensorbox invariant — true for every device, not
 # optional. Device-specific config belongs in the per-device recipe, not here.
 
 # Packages merged into every recipe's build request. These are dependencies
-# of the defaults script below — things orb-forge needs at runtime on every
+# of the defaults script below — things sensorbox needs at runtime on every
 # device regardless of hardware. The selector JS deduplicates this list with
 # each recipe's own `packages` field before sending the merged set to ASU.
 packages:
@@ -188,7 +188,7 @@ defaults: |
   #    containerd's overlayfs snapshotter, which refuses to stack a
   #    second overlay on top of OpenWrt's already-overlayed root
   #    ("overlay: filesystem ... not supported as upperdir"). vfs is
-  #    slow but works on any filesystem; for the orb-forge sensorbox
+  #    slow but works on any filesystem; for the sensorbox sensorbox
   #    use case (a handful of small containers like scandump) it's
   #    fine. fuse-overlayfs would be faster but requires an extra
   #    package.
@@ -229,7 +229,7 @@ defaults: |
   # invocation isn't paying the ~30 MB pull cost.
   cat > /usr/bin/scandump <<'SCANDUMP_WRAPPER'
   #!/bin/sh
-  # Thin wrapper around ghcr.io/dboze/scandump (orb-forge).
+  # Thin wrapper around ghcr.io/dboze/scandump (sensorbox).
   # Behaves like a native scandump binary: stdin/stdout/stderr stream
   # through, signals (SIGINT, SSH SIGHUP) propagate via exec, /tmp is
   # bind-mounted so file output to /tmp/scan.pcap lands on the host.

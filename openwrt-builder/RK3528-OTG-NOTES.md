@@ -141,7 +141,7 @@ echo 0x0100 > bcdDevice
 echo 0x0200 > bcdUSB
 
 mkdir -p strings/0x409
-echo "orb-forge"    > strings/0x409/manufacturer
+echo "sensorbox"    > strings/0x409/manufacturer
 echo "NanoPi Zero2" > strings/0x409/product
 echo "0123456789"   > strings/0x409/serialnumber
 
@@ -173,6 +173,6 @@ iPhone is the eventual target — NCM is what iOS uses for Personal Hotspot teth
 
 ## What's still open
 
-- **Baking the gadget setup into the orb-forge recipe** — procd init.d service that sets up configfs at boot, brings up `usb0`, runs a small dnsmasq for the phone, binds `uhttpd` to the gadget interface.
+- **Baking the gadget setup into the sensorbox recipe** — procd init.d service that sets up configfs at boot, brings up `usb0`, runs a small dnsmasq for the phone, binds `uhttpd` to the gadget interface.
 - **iPhone-side empirical test** — confirm the iPhone enumerates the NCM gadget cleanly (no trust prompt expected since NCM is a generic networking class, but worth verifying).
 - **Upstreaming the OpenWrt config change** — `target/linux/rockchip/armv8/config-6.12` is shared across all rockchip boards, not just RK3528. Switching DWC3 to dual-role unconditionally may surprise other boards (RK3568, RK3576, RK3588) that have been getting away with host-only. The right upstream story may be to delete the hardcoded `CONFIG_USB_DWC3_*` lines entirely and let `kmod-usb-dwc3`'s package logic pick DRD via the `USB_GADGET_SUPPORT` check.
