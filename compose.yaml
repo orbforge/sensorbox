@@ -1,3 +1,5 @@
+name: sensorbox
+
 services:
   # On-demand custom ImageBuilder builder. Always running, exposes an
   # API at /builder/ (proxied through the selector nginx). Triggered
