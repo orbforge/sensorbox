@@ -204,7 +204,7 @@ Every recipe must be validated on real hardware before submission. Do not skip i
 
 ### Core functionality (every device)
 
-- [ ] **Hostname:** Verify the device has a unique random hostname (`Orb-NNNN`). Check via SSH prompt or `uci get system.@system[0].hostname`.
+- [ ] **Hostname:** Verify the device has a unique random hostname (`sensorbox-NNNN`). Check via SSH prompt or `uci get system.@system[0].hostname`.
 - [ ] **Root password:** SSH into the device using the root password you set in the form. Confirm it works.
 - [ ] **Orb running:** `ps | grep orb` shows the Orb process.
 - [ ] **Orb token configured:** `cat /etc/config/orb` shows the deployment token you entered.
@@ -224,7 +224,7 @@ Every recipe must be validated on real hardware before submission. Do not skip i
 - [ ] **LED feedback during install:** The status LED blinks during the eMMC write.
 - [ ] **All LEDs pulse on completion:** When the install finishes, ALL LEDs on the device pulse in unison.
 - [ ] **Boot from eMMC:** Power off, remove the SD card, power on. The device boots from eMMC.
-- [ ] **Different hostname on eMMC:** The eMMC-booted device has a different `Orb-NNNN` hostname than the SD boot, confirming fresh overlay and uci-defaults re-run.
+- [ ] **Different hostname on eMMC:** The eMMC-booted device has a different `sensorbox-NNNN` hostname than the SD boot, confirming fresh overlay and uci-defaults re-run.
 - [ ] **Orb running on eMMC:** `ps | grep orb` shows the Orb process on the eMMC boot.
 - [ ] **PARTUUID collision test:** Re-insert the SD card with eMMC still installed. Power on. Verify the device boots from the SD card (check hostname -- it should be the SD hostname, not the eMMC one). This confirms the installer's disk-signature randomization is working and the eMMC's PARTUUID does not hijack SD boots.
 - [ ] **install_notes accuracy:** Re-read the `install_notes` you wrote and confirm every step matches what actually happens on the hardware (LED names, port locations, timing).

@@ -18,7 +18,7 @@ packages:
   # internet yet. Baking it in at build time sidesteps the problem entirely.
   - micrond
   # umdns is a lightweight mDNS responder that advertises the device's
-  # hostname as Orb-NNNN.local on the LAN. macOS resolves .local names
+  # hostname as sensorbox-NNNN.local on the LAN. macOS resolves .local names
   # natively, so `ssh root@orb-1234.local` works without knowing the IP
   # or depending on the router's DNS. Much lighter than avahi-daemon.
   - umdns
@@ -59,9 +59,9 @@ defaults: |
   # running kernel on boot without going through the busybox `hostname`
   # applet (which is compiled out on some rockchip targets) — verified
   # on Radxa E20C 25.12.2.
-  ORB_HOSTNAME="Orb-$(printf '%04d' $((RANDOM % 10000)))"
+  SENSORBOX_HOSTNAME="sensorbox-$(printf '%04d' $((RANDOM % 10000)))"
   uci -q get system.@system[0] >/dev/null || uci add system system >/dev/null
-  uci set system.@system[0].hostname="$ORB_HOSTNAME"
+  uci set system.@system[0].hostname="$SENSORBOX_HOSTNAME"
   # Require login on TTY / serial console. Without this, anyone with
   # physical UART access can drop straight to a root shell (the stock
   # `askfirst:/usr/libexec/login.sh` shim auto-launches a shell unless
@@ -96,7 +96,7 @@ defaults: |
   # keys — not the original tskey-auth-* string.
   #
   # Opinionated defaults baked into the `tailscale up` invocation:
-  #   --hostname     = the auto-generated Orb-NNNN
+  #   --hostname     = the auto-generated sensorbox-NNNN
   #   --ssh          = Tailscale SSH on; access via tailnet identity
   #                    without exposing dropbear publicly
   /etc/init.d/tailscale enable 2>/dev/null || true
