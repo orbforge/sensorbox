@@ -60,6 +60,17 @@ options:
         packages:
           - avahi-daemon
           - uhttpd
+          # libcap-bin gives us setcap(8) so we can grant tcpdump/iw the
+          # narrow caps WiFi Explorer Pi's remote-sensor flow needs
+          # (NET_RAW / NET_ADMIN) without leaving them setuid-root.
+          - libcap-bin
+          # shadow-utils tools we use to create the wlanpi user and put
+          # it in the docker group. OpenWrt's busybox build doesn't
+          # include the adduser/useradd applets, so we have to bring in
+          # the shadow-utils equivalents explicitly.
+          - shadow-useradd
+          - shadow-usermod
+          - shadow-chpasswd
 
 packages:
   - orb
@@ -134,6 +145,40 @@ defaults: |
   #      before/after capturing; explicit mode switch keeps wlan0 in
   #      normal Wi-Fi for Orb the rest of the time. CGI handlers gated to
   #      192.168.42.0/24 source IPs (the USB subnet) via REMOTE_ADDR check.
+  #   5. wlanpi user + sudoers + setcap — WiFi Explorer Pro's remote-sensor
+  #      SSH flow expects the standard WLAN Pi conventions: username
+  #      `wlanpi`, password `wlanpi`, NOPASSWD sudo for tcpdump/iw/ip/
+  #      scandump, and the network caps already attached to tcpdump/iw
+  #      so they work without sudo when invoked directly. Baked in so
+  #      WEPro Just Works once the user plugs an iPhone into the Zero2
+  #      and connects the SSH-based sensor.
+
+  # Create the wlanpi user. The shadow-useradd / -usermod / -chpasswd
+  # packages installed by usb_diagnostic give us the standard tools —
+  # OpenWrt's busybox build excludes adduser/useradd. -m creates the
+  # home directory, -U creates a same-named primary group.
+  useradd -m -s /bin/ash -d /home/wlanpi -U wlanpi 2>/dev/null || true
+  echo 'wlanpi:wlanpi' | chpasswd
+
+  # wlanpi in the docker group so the /usr/bin/scandump wrapper (which
+  # exec's `docker run`) works without sudo. Docker group is effectively
+  # root-equivalent — that's accepted for this opinionated sensor
+  # appliance; the wlanpi user already has NOPASSWD sudo for the tools
+  # it needs, so the group membership doesn't change the security
+  # boundary in practice.
+  usermod -aG docker wlanpi
+
+  mkdir -p /etc/sudoers.d
+  cat > /etc/sudoers.d/wifiexplorerpi <<'WEPRO_SUDOERS'
+  wlanpi ALL=(root) NOPASSWD: /usr/bin/tcpdump, /usr/sbin/iw, /sbin/ip, /usr/sbin/ip, /bin/ip, /usr/bin/scandump
+  WEPRO_SUDOERS
+  chmod 0440 /etc/sudoers.d/wifiexplorerpi
+
+  # File caps: tcpdump needs raw sockets, iw needs nl80211 + raw.
+  # `+ep` = effective + permitted, so the caps activate the moment the
+  # binary execs (no need to invoke through a capability-aware shell).
+  setcap cap_net_raw+ep /usr/bin/tcpdump 2>/dev/null || true
+  setcap cap_net_admin,cap_net_raw+ep /usr/sbin/iw 2>/dev/null || true
 
   cat > /etc/init.d/orb-forge-gadget <<'GADGET_INIT'
   #!/bin/sh /etc/rc.common

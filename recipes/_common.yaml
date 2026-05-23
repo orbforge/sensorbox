@@ -180,11 +180,125 @@ defaults: |
 
   {{#docker_enabled}}
   # Docker: package install was handled by ASU (added to packages list
-  # when the form's "Install Docker" was checked). The package's init.d
-  # may not be auto-enabled on install, so do it here. dockerd starts
-  # at boot from then on; users SSH in to run containers.
+  # when the form's "Install Docker" was checked). Three things have to
+  # be configured here for docker to actually be functional on OpenWrt:
+  #
+  # 1. storage-driver = vfs (and disable containerd-snapshotter).
+  #    OpenWrt's rootfs is squashfs+overlayfs. Docker 23+ defaults to
+  #    containerd's overlayfs snapshotter, which refuses to stack a
+  #    second overlay on top of OpenWrt's already-overlayed root
+  #    ("overlay: filesystem ... not supported as upperdir"). vfs is
+  #    slow but works on any filesystem; for the orb-forge sensorbox
+  #    use case (a handful of small containers like scandump) it's
+  #    fine. fuse-overlayfs would be faster but requires an extra
+  #    package.
+  #
+  # 2. data-root = /opt/docker. The dockerd default is /var/lib/docker,
+  #    but on OpenWrt /var is a symlink to /tmp. runc rejects any
+  #    container whose rootfs path goes through a symlink with
+  #    "invalid rootfs: not an absolute path, or a symlink", so we
+  #    have to point dockerd at a path that is a real directory.
+  #    /opt is a real directory on OpenWrt's overlay rootfs.
+  #    Note: data-root must live inside daemon.json — the UCI
+  #    option `dockerd.globals.data_root` is ignored when
+  #    alt_config_file is set, because the init.d script then
+  #    copies the user's daemon.json verbatim without merging
+  #    UCI keys.
+  #
+  # 3. alt_config_file so dockerd actually reads our daemon.json. By
+  #    default the OpenWrt init.d script generates its own daemon.json
+  #    from UCI and ignores /etc/docker/daemon.json.
+  mkdir -p /etc/docker
+  cat >/etc/docker/daemon.json <<'DOCKERJSON'
+  {
+    "features": { "containerd-snapshotter": false },
+    "storage-driver": "vfs",
+    "data-root": "/opt/docker"
+  }
+  DOCKERJSON
+  uci set dockerd.globals.alt_config_file='/etc/docker/daemon.json'
+  uci commit dockerd
   /etc/init.d/dockerd enable 2>/dev/null || true
   {{/docker_enabled}}
+
+  {{#scandump_enabled}}
+  # scandump: ship a /usr/bin/scandump wrapper around the
+  # ghcr.io/dboze/scandump container so Wi-Fi Explorer Pro's remote-sensor
+  # flow (ssh sensor scandump wlan0 -) works without knowing the tool is
+  # containerized. Pre-pull the image once network is up so the first
+  # invocation isn't paying the ~30 MB pull cost.
+  cat > /usr/bin/scandump <<'SCANDUMP_WRAPPER'
+  #!/bin/sh
+  # Thin wrapper around ghcr.io/dboze/scandump (orb-forge).
+  # Behaves like a native scandump binary: stdin/stdout/stderr stream
+  # through, signals (SIGINT, SSH SIGHUP) propagate via exec, /tmp is
+  # bind-mounted so file output to /tmp/scan.pcap lands on the host.
+  # --network host so the container sees wlan0/phy0.
+  # NET_ADMIN + NET_RAW are the minimum caps scandump needs for nl80211.
+  exec docker run --rm -i \
+      --network host \
+      --cap-add NET_ADMIN \
+      --cap-add NET_RAW \
+      -v /tmp:/tmp \
+      ghcr.io/dboze/scandump:latest "$@"
+  SCANDUMP_WRAPPER
+  chmod +x /usr/bin/scandump
+
+  # Pre-pull init.d. Same retry/backoff/self-delete pattern as
+  # orb-tailscale-up: dockerd takes a moment to come up, the device may
+  # not have internet at first boot, and we don't want a daemon that
+  # tries to pull forever. If the prepull fails, the wrapper still
+  # works — the first manual `scandump` call just pulls on demand.
+  cat > /etc/init.d/orb-docker-prepull <<'PREPULL_INIT'
+  #!/bin/sh /etc/rc.common
+  START=99
+  STOP=
+
+  MAX_ATTEMPTS=6
+  IMAGE=ghcr.io/dboze/scandump:latest
+
+  boot() {
+      # Wait for dockerd to accept connections (up to 60s).
+      for i in $(seq 1 60); do
+          docker info >/dev/null 2>&1 && break
+          sleep 1
+      done
+
+      if ! docker info >/dev/null 2>&1; then
+          logger -t orb-docker-prepull "dockerd not ready after 60s; giving up"
+          /etc/init.d/orb-docker-prepull disable 2>/dev/null
+          rm -f /etc/init.d/orb-docker-prepull
+          return 1
+      fi
+
+      attempt=0
+      while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+          attempt=$((attempt + 1))
+          if docker pull "$IMAGE" >/dev/null 2>&1; then
+              logger -t orb-docker-prepull "pulled $IMAGE (attempt $attempt/$MAX_ATTEMPTS)"
+              /etc/init.d/orb-docker-prepull disable 2>/dev/null
+              rm -f /etc/init.d/orb-docker-prepull
+              return 0
+          fi
+          logger -t orb-docker-prepull "attempt $attempt/$MAX_ATTEMPTS failed"
+
+          # Backoff: 30s, 60s, 120s, 240s, 480s between retries.
+          if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((30 * (1 << (attempt - 1))))
+          fi
+      done
+
+      logger -t orb-docker-prepull "exhausted $MAX_ATTEMPTS attempts; first scandump call will pull on demand"
+      /etc/init.d/orb-docker-prepull disable 2>/dev/null
+      rm -f /etc/init.d/orb-docker-prepull
+  }
+  PREPULL_INIT
+  chmod +x /etc/init.d/orb-docker-prepull
+  /etc/init.d/orb-docker-prepull enable
+  # Same backgrounded boot-invocation trick as orb-tailscale-up — procd
+  # has already iterated past START=99 by the time uci-defaults runs.
+  /etc/rc.common /etc/init.d/orb-docker-prepull boot &
+  {{/scandump_enabled}}
 
   # Persist the Orb apk feed on the running device so orb-update can
   # actually fetch new Orb versions at runtime. ASU consumes this feed
