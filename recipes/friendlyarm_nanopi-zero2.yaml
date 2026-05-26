@@ -293,6 +293,9 @@ defaults: |
   uci set dhcp.usb0.leasetime='12h'
   uci add_list dhcp.usb0.dhcp_option='3'
   uci add_list dhcp.usb0.dhcp_option='6'
+  # _common.yaml locks dnsmasq to lo; add usb0 back so the gadget DHCP
+  # above actually serves the iPhone.
+  uci add_list dhcp.@dnsmasq[0].interface='usb0'
   uci commit dhcp
 
   # mDNS advertisement so WiFi Explorer Pi (iOS) finds the device. Per
