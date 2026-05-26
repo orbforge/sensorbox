@@ -7,14 +7,14 @@ See [GOALS.md](GOALS.md) for the product brief and design constraints.
 **Status:** early scaffolding. sensorbox builds on two upstream projects:
 
 - [ASU](https://github.com/openwrt/asu) — consumed as the published `docker.io/openwrt/asu:latest` container image. No source lives in this repo.
-- [OpenWrt Firmware Selector](https://gitlab.com/openwrt/web/firmware-selector-openwrt-org) — forked to [dboze/firmware-selector-openwrt-org](https://github.com/dboze/firmware-selector-openwrt-org) and included here as a git submodule at `firmware-selector/`. This is where Orb-specific UI extensions live.
+- [OpenWrt Firmware Selector](https://gitlab.com/openwrt/web/firmware-selector-openwrt-org) — forked to [orbforge/firmware-selector-openwrt-org](https://github.com/orbforge/firmware-selector-openwrt-org) and included here as a git submodule at `firmware-selector/`. This is where Orb-specific UI extensions live.
 
 The orchestration glue that wires them together is not written yet.
 
 ## Cloning
 
 ```bash
-git clone --recurse-submodules git@github.com:<you>/sensorbox.git
+git clone --recurse-submodules git@github.com:orbforge/sensorbox.git
 ```
 
 If you already cloned without `--recurse-submodules`:
