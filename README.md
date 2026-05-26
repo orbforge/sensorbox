@@ -69,6 +69,22 @@ No VM needed — Podman runs natively.
 
 Not yet validated. Podman Desktop supports Windows via WSL2; expect a similar flow to macOS.
 
+## Run the stack
+
+From the repository root:
+
+```bash
+podman-compose up -d
+```
+
+Open <http://localhost:8080/> in your browser. The first run pulls the ASU image and builds the openwrt-builder image (a few minutes). Subsequent runs are fast.
+
+Tear down with:
+
+```bash
+podman-compose down
+```
+
 ## Repository layout
 
 - `firmware-selector/` — git submodule pointing at the Orb fork of the OpenWrt Firmware Selector. This is where Orb-specific UI code belongs. The submodule has `upstream` configured so you can pull improvements from openwrt: `git -C firmware-selector fetch upstream && git -C firmware-selector merge upstream/main`.
