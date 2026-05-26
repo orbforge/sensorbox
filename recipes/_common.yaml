@@ -70,6 +70,29 @@ defaults: |
   uci set system.@system[0].ttylogin='1'
   uci commit system
 
+  # Lock dnsmasq to loopback. We need it for the device's own DNS
+  # resolution (orb-update, Tailscale, telegraf, etc.), but a sensor
+  # box has no business being a DNS resolver for the LAN it lives on.
+  # Default OpenWrt behavior is to bind on all interfaces and accept
+  # queries from the local subnet (`option localservice '1'`), which
+  # makes the device an open recursive resolver for anyone on the
+  # same LAN. Binding to lo only is the right scope.
+  #
+  # Per-interface DNSMasq activation requires the interface to be
+  # added to the dnsmasq section. The usb_diagnostic_enabled block
+  # in the Zero2 recipe re-adds 'usb0' so its NCM-gadget DHCP works.
+  uci -q delete dhcp.@dnsmasq[0].interface
+  uci add_list dhcp.@dnsmasq[0].interface='lo'
+  uci commit dhcp
+
+  # Disable odhcpd. It's the IPv6 DHCP server + Router Advertisement
+  # daemon, useful only when the device is a network's IPv6 server —
+  # which a sensorbox never is. The IPv6 client side (DHCPv6 client +
+  # SLAAC) is handled by netifd, not odhcpd, so disabling here doesn't
+  # affect the device's own IPv6 connectivity.
+  /etc/init.d/odhcpd disable 2>/dev/null || true
+  /etc/init.d/odhcpd stop 2>/dev/null || true
+
   {{#tailscale_enabled}}
   # Tailscale: auth this device to the tailnet on first boot.
   #
