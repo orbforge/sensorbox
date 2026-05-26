@@ -88,9 +88,12 @@ services:
     restart: unless-stopped
     volumes:
       - ./firmware-selector/www:/usr/share/nginx/html:ro
-      # Same-origin reverse proxy to ASU, so the browser never makes a
-      # cross-origin request and ASU does not need CORS headers.
-      - ./selector/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # nginx config is a TEMPLATE rendered at container start by
+      # 10-resolver.sh below — it substitutes RESOLVER_PLACEHOLDER with
+      # the actual /etc/resolv.conf nameserver IP. Hardcoding fails
+      # whenever Podman gives the compose network a new gateway IP.
+      - ./selector/nginx.conf.template:/etc/nginx/sensorbox-template.conf:ro
+      - ./selector/resolver-entrypoint.sh:/docker-entrypoint.d/10-resolver.sh:ro
       # Recipes mounted read-only; the entrypoint hook below copies them
       # into a writable container-layer path and generates an index.json
       # so the browser can enumerate devices without a directory listing.
