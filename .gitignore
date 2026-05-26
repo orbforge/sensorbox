@@ -17,3 +17,6 @@ node_modules/
 
 # Locally-built test images (use sparingly; published artifacts live elsewhere)
 /test-images/
+
+# Local task list — not project documentation; not tracked.
+TODO.md
