@@ -19,6 +19,7 @@ server {
     # Static firmware-selector assets (from the submodule, overlaid with our
     # config.js via a second bind mount in compose.yaml).
     location / {
+        add_header Cache-Control "no-store, max-age=0" always;
         try_files $uri $uri/ =404;
     }
 
@@ -27,6 +28,7 @@ server {
     # /orb-recipes-src/. Not under /usr/share/nginx/html/ because that tree
     # is a read-only bind mount from the firmware-selector submodule.
     location /recipes/ {
+        add_header Cache-Control "no-store, max-age=0" always;
         alias /orb-recipes/;
         try_files $uri =404;
     }

@@ -19,6 +19,10 @@ arch: aarch64_generic
 # on real hardware — 25.12.0 for this target has a broken overlay-format
 # path that leaves the rootfs on a tmpfs fallback and breaks persistence.
 version: "25.12.2"
+# The E20C variants we target have 16 GB eMMC. OpenWrt ImageBuilder's
+# default rootfs partition is much smaller and can fail when optional
+# runtime packages like Docker/Compose are selected.
+rootfs_size_mb: 2048
 
 capabilities:
   wifi: false
