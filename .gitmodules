@@ -1,0 +1,8 @@
+[submodule "firmware-selector"]
+	path = firmware-selector
+	url = git@github.com:orbforge/firmware-selector-openwrt-org.git
+	branch = sensorbox-patches
+[submodule "asu"]
+	path = asu
+	url = git@github.com:orbforge/asu.git
+	branch = sensorbox-patches

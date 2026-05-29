@@ -1,0 +1,76 @@
+id: radxa_e20c
+title: "Radxa E20C"
+description: "Ethernet-only Orb probe. Two GbE ports bridged as a single LAN client; plug either port into the user's network."
+vendor_url: "https://docs.radxa.com/en/e/e20c"
+docs_url: "https://orb.net/docs/devices/radxa-e20c"
+install_notes: |
+  1. Flash the downloaded image to an **SD card** using [balenaEtcher](https://etcher.balena.io/) or `dd`.
+  2. Insert the SD card into the E20C and connect power (no ethernet yet).
+  3. If **Install to eMMC** is enabled: watch the **SYS LED** (small green LED near the USB-C port) — it flashes rapidly during boot, then pulses slowly while writing to eMMC. When all LEDs pulse, power off, remove the SD card, and re-insert power. The device now boots from eMMC.
+  4. If running from **SD only**: wait for the SYS LED to settle, then the device is ready.
+  5. Plug either ethernet port into your network. Both ports are bridged; either one works.
+
+  **Note:** The LAN port's link LEDs (on the port itself) work normally. The WAN port's physical link LEDs do not illuminate, but the front-panel WAN LED does — this is a hardware quirk, not a fault.
+
+target: rockchip/armv8
+profile: radxa_e20c
+arch: aarch64_generic
+# Pinned version the recipe is tested against. Bump only after re-verifying
+# on real hardware — 25.12.0 for this target has a broken overlay-format
+# path that leaves the rootfs on a tmpfs fallback and breaks persistence.
+version: "25.12.2"
+
+capabilities:
+  wifi: false
+
+# Describes how to install this device to its onboard flash when the user
+# opts in via the "Install to eMMC" checkbox. The installer at runtime
+# first verifies that the emmc_device actually exists — some E20C units
+# ship without eMMC, and a single recipe covers both. If no eMMC is
+# detected, the installer skips silently.
+install:
+  hint: "Not all E20C models have eMMC. If yours doesn't, uncheck this and run from SD. Uncheck for SD-only operation (useful for validation runs or temporary deployments)."
+  sd_device: /dev/mmcblk1
+  emmc_device: /dev/mmcblk0
+  # Partition name (as seen under /sys/class/block/) of the rootfs
+  # partition on the SD card. The installer reads its start offset
+  # from sysfs and combines it with /dev/loop0's size (the running
+  # squashfs) to compute exactly how many sectors are static and
+  # safe to dd, without touching the live overlay tail.
+  size_from_partition: mmcblk1p2
+  # Physical status LED to drive during install. Must be a
+  # kernel-exposed LED under /sys/class/leds/. green:heartbeat is
+  # the E20C's SYS LED.
+  status_led: "green:heartbeat"
+
+packages:
+  - orb
+
+repositories:
+  orb: "https://pkgs.orb.net/stable/openwrt-apk/aarch64_generic/packages.adb"
+
+repository_keys:
+  - orb-apk-ec.pub
+
+defaults: |
+  # Bridge both ethernet ports as a single DHCP client. Either port can be
+  # plugged into the user's LAN; the other is a pass-through. The E20C has
+  # no WAN in any meaningful sense — it's a probe, not a router.
+  uci set network.lan.device='br-lan'
+  uci set network.lan.proto='dhcp'
+  # Clear the stock 192.168.1.1/24 static address that base-files ships
+  # for network.lan. proto='dhcp' already takes precedence at runtime,
+  # but removing the leftover keeps `uci show network.lan` tidy.
+  uci -q delete network.lan.ipaddr
+  uci -q delete network.lan.netmask
+  uci set network.@device[0]=device
+  uci set network.@device[0].name='br-lan'
+  uci set network.@device[0].type='bridge'
+  uci set network.@device[0].ports='eth0 eth1'
+  uci commit network
+
+  # Remove the stock WAN configuration so nothing tries to run as a
+  # gateway or run DHCP server on one of the ports.
+  uci -q delete network.wan
+  uci -q delete network.wan6
+  uci commit network

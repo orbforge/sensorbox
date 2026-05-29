@@ -1,0 +1,157 @@
+id: raspberrypi_rpi-4
+title: "Raspberry Pi 4 / CM4"
+description: "Raspberry Pi 4B, Pi 400, or CM4 with a carrier board (e.g. WLAN Pi M4+ / Mcuzone Wi-Fi 7 PoE). Wi-Fi via onboard Broadcom or an M.2 Intel BE200."
+vendor_url: "https://www.raspberrypi.com/products/raspberry-pi-4-model-b/"
+docs_url: "https://orb.net/docs/devices"
+
+target: bcm27xx/bcm2711
+profile: rpi-4
+arch: aarch64_cortex-a72
+# Untested at this version on rpi-4 — bump after validating Wi-Fi association
+# end-to-end on real hardware (any of: Pi 4B onboard, CM4 onboard, M.2 BE200).
+version: "25.12.2"
+
+capabilities:
+  wifi: true
+
+# diff_packages=false: choices below are ADDITIONS on top of the rpi-4 profile.
+# The profile already ships brcmfmac firmware + wpad-basic-mbedtls, so the
+# onboard option only swaps in the full wpad (for WPA3/SAE) and adds iw/wpa-cli;
+# the BE200 option layers on the Intel kmod and firmware.
+options:
+  wifi_module:
+    label: "Wi-Fi Module"
+    default: onboard_broadcom
+    choices:
+      none:
+        label: "None (ethernet only)"
+      onboard_broadcom:
+        label: "Onboard Broadcom (Pi 4B / CM4)"
+        packages:
+          - -wpad-basic-mbedtls
+          - wpad-mbedtls
+          - wpa-cli
+          - iw
+      intel_be200:
+        label: "Intel BE200 on M.2"
+        packages:
+          - kmod-iwlwifi
+          - iwlwifi-firmware-be200
+          - -wpad-basic-mbedtls
+          - wpad-mbedtls
+          - wpa-cli
+          - iw
+        # Per-module override slot for the wifi-temp.sh telemetry helper
+        # (consumed by _common.yaml when system telemetry is enabled).
+        # The generic case "iwl*" in _common already covers BE200; this
+        # override exists as a worked example for chipsets that need
+        # non-standard hwmon paths.
+        wifi_temp_probe: |
+          for hw in /sys/class/hwmon/hwmon*; do
+              [ -r "$hw/name" ] || continue
+              case "$(cat "$hw/name")" in iwl*) ;; *) continue ;; esac
+              [ -r "$hw/temp1_input" ] || continue
+              milli=$(cat "$hw/temp1_input")
+              printf 'wifi_temp,module=intel_be200 temp_celsius=%s\n' "$(awk "BEGIN{printf \"%.2f\", $milli/1000}")"
+              exit 0
+          done
+
+packages:
+  - orb
+
+repositories:
+  orb: "https://pkgs.orb.net/stable/openwrt-apk/aarch64_cortex-a72/packages.adb"
+
+repository_keys:
+  - orb-apk-ec.pub
+
+# No `install:` block. CM4 eMMC must be flashed externally via rpiboot over
+# USB-C (the SoC enters mass-storage mode); a runtime SD->eMMC dd doesn't
+# apply. Run from SD only, or flash CM4 eMMC out-of-band.
+
+install_notes: |
+  This image targets the Raspberry Pi 4 family — **Pi 4B**, **Pi 400**, and **CM4** (with any M.2-capable carrier such as the WLAN Pi M4+ / Mcuzone Wi-Fi 7 PoE). The OpenWrt `rpi-4` profile is one image that boots on all of them.
+
+  **Wi-Fi:** the dropdown selects which packages are baked in. *Onboard Broadcom* uses the SoC's built-in 43455 — no extra hardware needed. *Intel BE200 on M.2* needs a way to bring M.2 PCIe to the Pi — typically a CM4 carrier board, but Pi 4B M.2 HATs that route the SoC's PCIe lane work too.
+
+  **First-boot reboot (BE200 builds only).** When both the onboard Broadcom and an Intel M.2 card are present, the image edits `/boot/config.txt` to disable the onboard radios and **reboots once** (~30s after first boot completes) so the disable takes effect. Without this, both PHYs enumerate and the kernel's hotplug auto-reloads the onboard driver, causing a `wlan0` name collision that prevents Wi-Fi from associating to the BE200. After the one reboot, only the BE200 enumerates and Wi-Fi associates cleanly on every subsequent boot. Pi 4B onboard-only builds skip this entirely.
+
+  1. Flash the downloaded image to an **SD card**.
+  2. Insert the SD card and connect power.
+  3. Plug ethernet into the Pi (or into the carrier's GbE port).
+
+defaults: |
+  # Bridge the GbE port for DHCP. Both Pi 4B (single eth0) and CM4 carriers
+  # (single eth0 brought out by the carrier) use one ethernet PHY. br-lan
+  # keeps shape parity with the multi-port recipes.
+  uci set network.lan.device='br-lan'
+  uci set network.lan.proto='dhcp'
+  uci -q delete network.lan.ipaddr
+  uci -q delete network.lan.netmask
+  uci set network.@device[0]=device
+  uci set network.@device[0].name='br-lan'
+  uci set network.@device[0].type='bridge'
+  uci set network.@device[0].ports='eth0'
+  uci commit network
+
+  # No WAN: this is a probe, not a router.
+  uci -q delete network.wan
+  uci -q delete network.wan6
+  uci commit network
+
+  {{#wifi_ssid}}
+  # Self-adapting Wi-Fi handling for the onboard Broadcom + M.2 Intel
+  # combo. If we see both an iwlwifi PHY (BE200) and a brcmfmac PHY
+  # (onboard 43455 on CM4 / Pi 4B), the only reliable way to make wlan0
+  # map deterministically to the BE200 is to disable the onboard radio
+  # in /boot/config.txt and reboot. Live `rmmod` workarounds don't hold:
+  # the kernel auto-reloads brcmfmac whenever the SDIO device is
+  # enumerated, and reloads the default wlan0 interface that collides
+  # with the one netifd wants on the BE200. The disable-wifi/disable-bt
+  # device-tree overlays are the clean fix, but they're only consumed
+  # at boot time — hence the one-shot reboot.
+  HAS_IWLWIFI=0
+  HAS_BRCMFMAC=0
+  for _phy in /sys/class/ieee80211/*; do
+      [ -L "$_phy/device/driver" ] || continue
+      case "$(basename "$(readlink "$_phy/device/driver")")" in
+          iwlwifi)  HAS_IWLWIFI=1 ;;
+          brcmfmac) HAS_BRCMFMAC=1 ;;
+      esac
+  done
+
+  if [ "$HAS_IWLWIFI" = 1 ] && [ "$HAS_BRCMFMAC" = 1 ]; then
+      # First-boot path: both PHYs present, our marker not yet in
+      # config.txt. Append the disable-onboard overlays and schedule a
+      # reboot so they take effect. Marker check makes this idempotent —
+      # if we somehow run again with the marker already present, we
+      # don't re-edit and don't re-schedule (no boot loop).
+      if [ -f /boot/config.txt ] && ! grep -q '^# sensorbox: ' /boot/config.txt; then
+          cat >> /boot/config.txt <<'CFGTXT_EOF'
+
+  # sensorbox: Intel M.2 card detected; disable onboard Wi-Fi/BT so the
+  # M.2 BE200 is the only Wi-Fi PHY. Covers both CM4 (Mcuzone-style
+  # carrier) and Pi 4B with an M.2 HAT. Also adds a GPIO-26 fan overlay
+  # for Mcuzone carriers (harmless on carriers without a fan transistor
+  # on that pin).
+  [cm4]
+  dtoverlay=disable-wifi
+  dtoverlay=disable-bt
+  dtoverlay=gpio-fan,gpiopin=26,temp=70000
+  [pi4]
+  dtoverlay=disable-wifi
+  dtoverlay=disable-bt
+  [all]
+  CFGTXT_EOF
+
+          # Background a reboot so this script can exit 0 normally and
+          # the uci-defaults framework can delete the script before the
+          # reboot fires (otherwise the script stays around and re-runs
+          # on the next boot). The 30s sleep gives sysinit, procd, and
+          # other first-boot uci-defaults scripts time to settle. The
+          # subshell is reparented to procd when the parent exits, so
+          # it keeps running after this script has been deleted.
+          (sleep 30 && reboot) >/dev/null 2>&1 &
+      fi
+  fi
+  {{/wifi_ssid}}

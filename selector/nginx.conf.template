@@ -1,0 +1,64 @@
+# Use the compose network's embedded DNS (aardvark-dns on Podman netavark)
+# so upstream hostnames are re-resolved on use rather than cached once at
+# nginx startup. Without this, recreating the asu-server container leaves
+# nginx stuck pointing at a dead IP until selector is also restarted.
+# The resolver IP is the gateway of the compose network; Podman assigns
+# this incrementally (10.89.0.1, 10.89.1.1, ...) for each new compose
+# project, so hardcoding is fragile. A docker-entrypoint hook
+# (10-resolver.sh) reads the actual nameserver from /etc/resolv.conf
+# at container start and substitutes RESOLVER_PLACEHOLDER below.
+resolver RESOLVER_PLACEHOLDER valid=10s ipv6=off;
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Static firmware-selector assets (from the submodule, overlaid with our
+    # config.js via a second bind mount in compose.yaml).
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Recipe YAML files and index.json, populated at container start by
+    # /docker-entrypoint.d/40-generate-recipes-index.sh from the bind-mounted
+    # /orb-recipes-src/. Not under /usr/share/nginx/html/ because that tree
+    # is a read-only bind mount from the firmware-selector submodule.
+    location /recipes/ {
+        alias /orb-recipes/;
+        try_files $uri =404;
+    }
+
+    # Same-origin proxy to ASU. The browser talks only to this nginx on :8080,
+    # so there is no cross-origin request and ASU does not need CORS headers.
+    # Using a variable in proxy_pass forces nginx to re-resolve the hostname
+    # via the resolver above on each request, avoiding the stale-IP trap.
+    location /api/ {
+        set $asu_upstream asu-server;
+        proxy_pass http://$asu_upstream:8000$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
+    location /store/ {
+        set $asu_upstream asu-server;
+        proxy_pass http://$asu_upstream:8000$request_uri;
+        proxy_set_header Host $host;
+    }
+
+    # Custom ImageBuilder builder API. Proxied so the browser can
+    # check builder status and trigger builds from the same origin.
+    location /builder/ {
+        set $builder_upstream openwrt-builder;
+        rewrite ^/builder/(.*) /$1 break;
+        proxy_pass http://$builder_upstream:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 30s;
+    }
+}

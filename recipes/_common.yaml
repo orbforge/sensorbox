@@ -1,0 +1,702 @@
+# Shared pre-amble for every sensorbox recipe. The firmware-selector renders
+# this block's `defaults` with Mustache, prepends it to the device recipe's
+# rendered `defaults`, and sends the concatenation to ASU as the build
+# request's `defaults` field.
+#
+# Everything in here is an sensorbox invariant — true for every device, not
+# optional. Device-specific config belongs in the per-device recipe, not here.
+
+# Packages merged into every recipe's build request. These are dependencies
+# of the defaults script below — things sensorbox needs at runtime on every
+# device regardless of hardware. The selector JS deduplicates this list with
+# each recipe's own `packages` field before sending the merged set to ASU.
+packages:
+  # micrond is a minimal cron daemon that orb-update's `install` subcommand
+  # depends on to schedule periodic update checks. Without it, orb-update
+  # install prints a warning and tries to apk-install micrond itself, which
+  # silently fails when we run it in uci-defaults on a device with no
+  # internet yet. Baking it in at build time sidesteps the problem entirely.
+  - micrond
+  # umdns is a lightweight mDNS responder that advertises the device's
+  # hostname as sensorbox-NNNN.local on the LAN. macOS resolves .local names
+  # natively, so `ssh root@orb-1234.local` works without knowing the IP
+  # or depending on the router's DNS. Much lighter than avahi-daemon.
+  - umdns
+  - sudo
+  - tcpdump
+  - ip-full
+
+defaults: |
+  # Seed the Orb deployment token. The orb service reads ORB_DEPLOYMENT_TOKEN
+  # from /etc/config/orb on first start and auto-links to the user's account.
+  # See https://orb.net/docs/setup-sensor/linux/openwrt.
+  cat > /etc/config/orb <<'ORBCFG'
+  config orb 'orb'
+      list env 'ORB_DEPLOYMENT_TOKEN={{{orb_token}}}'
+      list env 'ORB_DATA_DIR=/root'
+      list env 'ORB_EPHEMERAL_MODE=1'
+      list env 'ORB_LOG_CONSOLE_FORMAT=syslog'
+      list env 'ORB_MEASURE_SERVER_ENABLED=1'
+  ORBCFG
+  chmod 600 /etc/config/orb
+
+  # Set root password. busybox passwd reads from stdin when non-interactive
+  # and expects the new password twice (confirmation). The single-quoted
+  # heredoc preserves shell metacharacters in the rendered password. We
+  # suppress output and ignore exit status because busybox passwd prints
+  # "Changing password for root" to stderr and may warn on weak passwords
+  # without failing to set them. chpasswd is the cleaner tool but is not
+  # in the default OpenWrt busybox build; passwd always is.
+  passwd root >/dev/null 2>&1 <<'PWEOF' || true
+  {{{root_password}}}
+  {{{root_password}}}
+  PWEOF
+
+  # Assign a unique random-tail hostname via uci so every probe is
+  # individually identifiable on a LAN. The `uci add system system`
+  # guard covers the (unlikely) case where the base image ships no
+  # [system] section at all. OpenWrt's stock init applies this to the
+  # running kernel on boot without going through the busybox `hostname`
+  # applet (which is compiled out on some rockchip targets) — verified
+  # on Radxa E20C 25.12.2.
+  SENSORBOX_HOSTNAME="sensorbox-$(printf '%04d' $((RANDOM % 10000)))"
+  uci -q get system.@system[0] >/dev/null || uci add system system >/dev/null
+  uci set system.@system[0].hostname="$SENSORBOX_HOSTNAME"
+  # Require login on TTY / serial console. Without this, anyone with
+  # physical UART access can drop straight to a root shell (the stock
+  # `askfirst:/usr/libexec/login.sh` shim auto-launches a shell unless
+  # ttylogin is set). With it, the console always goes through /bin/login
+  # and respects /etc/shadow. See https://openwrt.org/docs/guide-user/security/openwrt_security.
+  uci set system.@system[0].ttylogin='1'
+  uci commit system
+
+  # Lock dnsmasq to loopback. We need it for the device's own DNS
+  # resolution (orb-update, Tailscale, telegraf, etc.), but a sensor
+  # box has no business being a DNS resolver for the LAN it lives on.
+  # Default OpenWrt behavior is to bind on all interfaces and accept
+  # queries from the local subnet (`option localservice '1'`), which
+  # makes the device an open recursive resolver for anyone on the
+  # same LAN. Binding to lo only is the right scope.
+  #
+  # Per-interface DNSMasq activation requires the interface to be
+  # added to the dnsmasq section. The usb_diagnostic_enabled block
+  # in the Zero2 recipe re-adds 'usb0' so its NCM-gadget DHCP works.
+  uci -q delete dhcp.@dnsmasq[0].interface
+  uci add_list dhcp.@dnsmasq[0].interface='lo'
+  uci commit dhcp
+
+  # Disable odhcpd. It's the IPv6 DHCP server + Router Advertisement
+  # daemon, useful only when the device is a network's IPv6 server —
+  # which a sensorbox never is. The IPv6 client side (DHCPv6 client +
+  # SLAAC) is handled by netifd, not odhcpd, so disabling here doesn't
+  # affect the device's own IPv6 connectivity.
+  /etc/init.d/odhcpd disable 2>/dev/null || true
+  /etc/init.d/odhcpd stop 2>/dev/null || true
+
+  {{#tailscale_enabled}}
+  # Tailscale: auth this device to the tailnet on first boot.
+  #
+  # uci-defaults runs BEFORE network is up, so we can't call
+  # `tailscale up` here directly — it needs DNS + outbound to
+  # login.tailscale.com. Instead, drop a one-shot init.d service that
+  # runs after boot completes and authenticates via the auth key.
+  #
+  # Hardening choices:
+  #   - In-boot retry with backoff (6 attempts over ~10 min) so
+  #     transient network failures don't permanently brick the join.
+  #   - Output is captured and the auth key redacted with sed before
+  #     logging, in case a future tailscale CLI version echoes the
+  #     key back in error messages.
+  #   - After all retries exhausted, the script self-deletes — the
+  #     auth key does NOT sit on disk forever waiting for a future
+  #     manual recovery. Trade-off: a user who flashes without internet,
+  #     then connects later, won't auto-join — they reflash or run
+  #     `tailscale up` manually. We chose key-hygiene over self-heal.
+  #
+  # On success, both this script and (separately) the uci-defaults
+  # framework's deletion of 99-asu-defaults wipe the key from disk.
+  # tailscaled.state persists, holding only the derived node/machine
+  # keys — not the original tskey-auth-* string.
+  #
+  # Opinionated defaults baked into the `tailscale up` invocation:
+  #   --hostname     = the auto-generated sensorbox-NNNN
+  #   --ssh          = Tailscale SSH on; access via tailnet identity
+  #                    without exposing dropbear publicly
+  /etc/init.d/tailscale enable 2>/dev/null || true
+
+  cat > /etc/init.d/sensorbox-tailscale-up <<'TAILSCALE_INIT'
+  #!/bin/sh /etc/rc.common
+  START=99
+  STOP=
+
+  MAX_ATTEMPTS=6
+  LOG_FILE=/tmp/tailscale-up.log
+
+  redact() {
+      # Strip any tskey-auth-XXX strings from captured output before
+      # logging. Defensive — current tailscale doesn't echo the key,
+      # but a future error message could.
+      sed -E 's/tskey-auth-[A-Za-z0-9_-]+/tskey-auth-REDACTED/g'
+  }
+
+  boot() {
+      # Wait for tailscaled socket (up to 30s).
+      for i in $(seq 1 30); do
+          [ -S /var/run/tailscale/tailscaled.sock ] && break
+          sleep 1
+      done
+
+      attempt=0
+      while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+          attempt=$((attempt + 1))
+
+          # Per-attempt: wait briefly for outbound connectivity. Skips
+          # quickly when net is already up; gives up to 30s on a fresh
+          # boot before connectivity is fully settled.
+          for i in $(seq 1 30); do
+              ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
+              sleep 1
+          done
+
+          # Capture combined output, redact any echoed auth keys, write
+          # to the log file. Exit status comes from tailscale itself.
+          OUTPUT=$(tailscale up \
+              --auth-key='{{{tailscale_auth_key}}}' \
+              --hostname="$(uci get system.@system[0].hostname)" \
+              --ssh 2>&1)
+          rc=$?
+          printf '%s\n' "$OUTPUT" | redact > "$LOG_FILE"
+
+          if [ "$rc" -eq 0 ]; then
+              logger -t sensorbox-tailscale "joined tailnet (attempt $attempt/$MAX_ATTEMPTS)"
+              /etc/init.d/sensorbox-tailscale-up disable 2>/dev/null
+              rm -f /etc/init.d/sensorbox-tailscale-up
+              return 0
+          fi
+
+          # Log redacted error.
+          SAFE_OUTPUT=$(printf '%s' "$OUTPUT" | redact | head -3 | tr '\n' ' ')
+          logger -t sensorbox-tailscale "attempt $attempt/$MAX_ATTEMPTS failed (rc=$rc): $SAFE_OUTPUT"
+
+          # Backoff: 30s, 60s, 120s, 240s, 480s between retries. Skip
+          # sleep on the last attempt.
+          if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((30 * (1 << (attempt - 1))))
+          fi
+      done
+
+      logger -t sensorbox-tailscale "exhausted $MAX_ATTEMPTS attempts; removing init.d so auth key isn't left on disk. Run \`tailscale up\` manually or reflash to retry."
+      /etc/init.d/sensorbox-tailscale-up disable 2>/dev/null
+      rm -f /etc/init.d/sensorbox-tailscale-up
+  }
+  TAILSCALE_INIT
+  chmod +x /etc/init.d/sensorbox-tailscale-up
+  /etc/init.d/sensorbox-tailscale-up enable
+  # procd has already iterated past START=99 by the time uci-defaults
+  # runs, so the symlink we just created isn't visible to procd's
+  # first-boot service-startup pass. Without this explicit invocation,
+  # the device wouldn't join the tailnet until the next reboot.
+  # Backgrounded so uci-defaults still exits 0 and gets deleted.
+  # Same pattern as sensorbox-installer and sensorbox-gadget.
+  /etc/rc.common /etc/init.d/sensorbox-tailscale-up boot &
+  {{/tailscale_enabled}}
+
+  {{#docker_enabled}}
+  # Docker: package install was handled by ASU (added to packages list
+  # when the form's "Install Docker" was checked). Three things have to
+  # be configured here for docker to actually be functional on OpenWrt:
+  #
+  # 1. storage-driver = vfs (and disable containerd-snapshotter).
+  #    OpenWrt's rootfs is squashfs+overlayfs. Docker 23+ defaults to
+  #    containerd's overlayfs snapshotter, which refuses to stack a
+  #    second overlay on top of OpenWrt's already-overlayed root
+  #    ("overlay: filesystem ... not supported as upperdir"). vfs is
+  #    slow but works on any filesystem; for the sensorbox sensorbox
+  #    use case (a handful of small containers like scandump) it's
+  #    fine. fuse-overlayfs would be faster but requires an extra
+  #    package.
+  #
+  # 2. data-root = /opt/docker. The dockerd default is /var/lib/docker,
+  #    but on OpenWrt /var is a symlink to /tmp. runc rejects any
+  #    container whose rootfs path goes through a symlink with
+  #    "invalid rootfs: not an absolute path, or a symlink", so we
+  #    have to point dockerd at a path that is a real directory.
+  #    /opt is a real directory on OpenWrt's overlay rootfs.
+  #    Note: data-root must live inside daemon.json — the UCI
+  #    option `dockerd.globals.data_root` is ignored when
+  #    alt_config_file is set, because the init.d script then
+  #    copies the user's daemon.json verbatim without merging
+  #    UCI keys.
+  #
+  # 3. alt_config_file so dockerd actually reads our daemon.json. By
+  #    default the OpenWrt init.d script generates its own daemon.json
+  #    from UCI and ignores /etc/docker/daemon.json.
+  mkdir -p /etc/docker
+  cat >/etc/docker/daemon.json <<'DOCKERJSON'
+  {
+    "features": { "containerd-snapshotter": false },
+    "storage-driver": "vfs",
+    "data-root": "/opt/docker"
+  }
+  DOCKERJSON
+  uci set dockerd.globals.alt_config_file='/etc/docker/daemon.json'
+  uci commit dockerd
+  /etc/init.d/dockerd enable 2>/dev/null || true
+  {{/docker_enabled}}
+
+  {{#scandump_enabled}}
+  # scandump: ship a /usr/bin/scandump wrapper around the
+  # ghcr.io/dboze/scandump container so Wi-Fi Explorer Pro's remote-sensor
+  # flow (ssh sensor scandump wlan0 -) works without knowing the tool is
+  # containerized. Pre-pull the image once network is up so the first
+  # invocation isn't paying the ~30 MB pull cost.
+  cat > /usr/bin/scandump <<'SCANDUMP_WRAPPER'
+  #!/bin/sh
+  # Thin wrapper around ghcr.io/dboze/scandump (sensorbox).
+  # Behaves like a native scandump binary: stdin/stdout/stderr stream
+  # through, signals (SIGINT, SSH SIGHUP) propagate via exec, /tmp is
+  # bind-mounted so file output to /tmp/scan.pcap lands on the host.
+  # --network host so the container sees wlan0/phy0.
+  # NET_ADMIN + NET_RAW are the minimum caps scandump needs for nl80211.
+  exec docker run --rm -i \
+      --network host \
+      --cap-add NET_ADMIN \
+      --cap-add NET_RAW \
+      -v /tmp:/tmp \
+      ghcr.io/dboze/scandump:latest "$@"
+  SCANDUMP_WRAPPER
+  chmod +x /usr/bin/scandump
+
+  # Pre-pull init.d. Same retry/backoff/self-delete pattern as
+  # sensorbox-tailscale-up: dockerd takes a moment to come up, the device may
+  # not have internet at first boot, and we don't want a daemon that
+  # tries to pull forever. If the prepull fails, the wrapper still
+  # works — the first manual `scandump` call just pulls on demand.
+  cat > /etc/init.d/sensorbox-docker-prepull <<'PREPULL_INIT'
+  #!/bin/sh /etc/rc.common
+  START=99
+  STOP=
+
+  MAX_ATTEMPTS=6
+  IMAGE=ghcr.io/dboze/scandump:latest
+
+  boot() {
+      # Wait for dockerd to accept connections (up to 60s).
+      for i in $(seq 1 60); do
+          docker info >/dev/null 2>&1 && break
+          sleep 1
+      done
+
+      if ! docker info >/dev/null 2>&1; then
+          logger -t sensorbox-docker-prepull "dockerd not ready after 60s; giving up"
+          /etc/init.d/sensorbox-docker-prepull disable 2>/dev/null
+          rm -f /etc/init.d/sensorbox-docker-prepull
+          return 1
+      fi
+
+      attempt=0
+      while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+          attempt=$((attempt + 1))
+          if docker pull "$IMAGE" >/dev/null 2>&1; then
+              logger -t sensorbox-docker-prepull "pulled $IMAGE (attempt $attempt/$MAX_ATTEMPTS)"
+              /etc/init.d/sensorbox-docker-prepull disable 2>/dev/null
+              rm -f /etc/init.d/sensorbox-docker-prepull
+              return 0
+          fi
+          logger -t sensorbox-docker-prepull "attempt $attempt/$MAX_ATTEMPTS failed"
+
+          # Backoff: 30s, 60s, 120s, 240s, 480s between retries.
+          if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              sleep $((30 * (1 << (attempt - 1))))
+          fi
+      done
+
+      logger -t sensorbox-docker-prepull "exhausted $MAX_ATTEMPTS attempts; first scandump call will pull on demand"
+      /etc/init.d/sensorbox-docker-prepull disable 2>/dev/null
+      rm -f /etc/init.d/sensorbox-docker-prepull
+  }
+  PREPULL_INIT
+  chmod +x /etc/init.d/sensorbox-docker-prepull
+  /etc/init.d/sensorbox-docker-prepull enable
+  # Same backgrounded boot-invocation trick as sensorbox-tailscale-up — procd
+  # has already iterated past START=99 by the time uci-defaults runs.
+  /etc/rc.common /etc/init.d/sensorbox-docker-prepull boot &
+  {{/scandump_enabled}}
+
+  # Persist the Orb apk feed on the running device so orb-update can
+  # actually fetch new Orb versions at runtime. ASU consumes this feed
+  # at image-build time via the build request's `repositories` field,
+  # but that configuration is consumed during ImageBuilder assembly and
+  # is NOT carried into the final image's apk config — mirroring
+  # pkgs.orb.net/install.sh's apk3 path is required. The architecture
+  # is read from /etc/apk/arch on the device so any future target gets
+  # the right value without recipe plumbing. The key content is
+  # Mustache-substituted by the selector from the first file listed in
+  # the recipe's repository_keys (convention: the Orb apk signing key
+  # is always first).
+  mkdir -p /etc/apk/keys /etc/apk/repositories.d
+  cat > /etc/apk/keys/orb-packages.pem <<'ORB_APK_KEY_EOF'
+  {{{orb_apk_key}}}
+  ORB_APK_KEY_EOF
+
+  ORB_APK_ARCH=$(cat /etc/apk/arch 2>/dev/null || echo aarch64_generic)
+  ORB_APK_FEED="https://pkgs.orb.net/stable/openwrt-apk/${ORB_APK_ARCH}/packages.adb"
+  if ! grep -qxF "$ORB_APK_FEED" /etc/apk/repositories.d/customfeeds.list 2>/dev/null; then
+      echo "$ORB_APK_FEED" >> /etc/apk/repositories.d/customfeeds.list
+  fi
+
+  # Register Orb for automatic updates. The orb package (baked in via
+  # the Orb apk feed at build time) ships /usr/bin/orb-update; `install`
+  # wires it into whatever OpenWrt scheduling mechanism it uses. This
+  # runs AFTER the feed setup above so that when orb-update eventually
+  # calls apk to check for new versions, the feed is already in place.
+  /usr/bin/orb-update install
+
+  # Wi-Fi capture mode helpers. orb-capture-mode tears down netifd's
+  # wireless management and creates a bare wlan0 interface that tools
+  # like WiFi Explorer Pro can use for passive monitor-mode capture.
+  # orb-capture-stop cleans up and restores normal Wi-Fi operation.
+  if [ -d /sys/class/ieee80211 ]; then
+      cat > /usr/bin/orb-capture-mode <<'CAPTURE_MODE'
+  #!/bin/sh
+  ubus call network.wireless down
+  sleep 1
+  PHY=$(ls /sys/class/ieee80211/ | head -1)
+  iw phy "$PHY" interface add wlan0 type managed
+  echo "Ready for capture. Run 'orb-capture-stop' to restore Wi-Fi."
+  CAPTURE_MODE
+      chmod +x /usr/bin/orb-capture-mode
+
+      cat > /usr/bin/orb-capture-stop <<'CAPTURE_STOP'
+  #!/bin/sh
+  iw dev wlan0 del 2>/dev/null
+  for dev in $(iw dev | awk '/Interface/{name=$2} /type monitor/{print name}'); do
+      iw dev "$dev" del 2>/dev/null
+  done
+  ubus call network.wireless up
+  echo "Wi-Fi restored."
+  CAPTURE_STOP
+      chmod +x /usr/bin/orb-capture-stop
+  fi
+
+  {{#wifi_ssid}}
+  # Wi-Fi client configuration (common to all Wi-Fi-capable devices).
+  #
+  # Band handling: "auto" mode sets band='5g' (for PHY setup) then
+  # generates a scan_list covering all bands so the supplicant can
+  # roam across 2.4/5/6 GHz. Locked bands set the band directly
+  # with no scan_list — the radio only operates on that band.
+  #
+  # For auto mode, set country FIRST and reload so iw phy reports
+  # 6 GHz frequencies before we generate the scan_list.
+  uci set wireless.radio0.band='{{{wifi_radio_band}}}'
+  uci set wireless.radio0.channel='auto'
+  uci set wireless.radio0.htmode='{{{wifi_radio_htmode}}}'
+  uci set wireless.radio0.country='{{{wifi_country}}}'
+  uci set wireless.radio0.disabled='0'
+
+  {{#wifi_band_auto}}
+  # Auto-band: reload radio with country set, then generate a
+  # scan_list covering all regulatory-allowed frequencies.
+  uci commit wireless
+  wifi reload 2>/dev/null; sleep 2
+  SCAN_LIST=$(iw phy phy0 info | grep -E '^\s+\* [0-9]' | grep -v disabled | awk '{print int($2)}' | tr '\n' ' ')
+  uci set wireless.radio0.scan_list="$SCAN_LIST"
+  {{/wifi_band_auto}}
+
+  uci -q delete wireless.default_radio0
+  uci set wireless.sta0=wifi-iface
+  uci set wireless.sta0.device='radio0'
+  uci set wireless.sta0.mode='sta'
+  uci set wireless.sta0.network='wwan'
+  uci set wireless.sta0.ssid='{{{wifi_ssid}}}'
+  uci set wireless.sta0.encryption='{{{wifi_encryption}}}'
+  uci set wireless.sta0.key='{{{wifi_password}}}'
+  uci set wireless.sta0.ifname='wlan0'
+
+  uci set network.wwan=interface
+  uci set network.wwan.proto='dhcp'
+  uci set network.wwan.metric='20'
+
+  uci add_list firewall.@zone[0].network='wwan'
+
+  # bgscan: OpenWrt's UCI doesn't support bgscan. Inject it via a
+  # hotplug script that patches the wpa_supplicant config on every
+  # wwan ifup and tells wpa_supplicant to reload via wpa_cli.
+  mkdir -p /etc/hotplug.d/iface
+  cat > /etc/hotplug.d/iface/99-bgscan <<'BGSCAN_HOOK'
+  #!/bin/sh
+  [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
+  sleep 3
+  CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
+  [ -f "$CONF" ] || exit 0
+  grep -q 'bgscan=' "$CONF" && exit 0
+  sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
+  wpa_cli -i phy0-sta0 reconfigure 2>/dev/null
+  BGSCAN_HOOK
+  chmod +x /etc/hotplug.d/iface/99-bgscan
+
+  uci commit wireless
+  uci commit network
+  uci commit firewall
+  uci commit system
+
+  wifi reload 2>/dev/null
+  {{/wifi_ssid}}
+
+  {{#install_to_emmc}}
+  # SD→eMMC installer (opt-in via the "Install to eMMC" form checkbox;
+  # only rendered into the script when the user has that box checked
+  # AND the recipe has an `install` block). Drops a procd init.d
+  # service that runs at START=20 on this first boot, clones the
+  # static SD partitions to eMMC using a dd size computed from /dev/
+  # loop0's size (the running squashfs) and mmcblk1p2's start offset,
+  # and signals status on the physical SYS LED. Does NOT touch the
+  # overlay tail, so no live-filesystem risk.
+  cat > /etc/init.d/sensorbox-installer <<'SENSORBOX_INSTALLER_EOF'
+  #!/bin/sh /etc/rc.common
+  START=20
+  STOP=
+
+  # Config baked in at build time via Mustache substitution before the
+  # uci-defaults script was written. These values are literal strings
+  # from the recipe's `install` block.
+  SD_DEVICE="{{{install_sd_device}}}"
+  EMMC_DEVICE="{{{install_emmc_device}}}"
+  SIZE_PARTITION="{{{install_size_from_partition}}}"
+  STATUS_LED="{{{install_status_led}}}"
+  # No sentinel — always flash eMMC when booted from SD with the
+  # installer enabled. This lets a single SD card flash multiple
+  # devices without re-imaging between each one. The dd is idempotent.
+
+  led_write() {
+      echo "$2" > "/sys/class/leds/$STATUS_LED/$1" 2>/dev/null || true
+  }
+
+  led_working() {
+      led_write trigger timer
+      led_write delay_on 500
+      led_write delay_off 500
+  }
+
+  led_done() {
+      # Pulse ALL LEDs in unison — unmistakable "install complete"
+      # signal. Loops re-applying the timer trigger every 2s to fight
+      # the system LED service which would otherwise override our
+      # triggers. Traps SIGTERM so poweroff/reboot can shut down
+      # cleanly — without this, the infinite loop blocks shutdown.
+      trap 'exit 0' TERM INT
+      while true; do
+          for led in /sys/class/leds/*/; do
+              echo timer > "${led}trigger" 2>/dev/null || true
+              echo 500 > "${led}delay_on" 2>/dev/null || true
+              echo 500 > "${led}delay_off" 2>/dev/null || true
+          done
+          sleep 2
+      done
+  }
+
+  led_error() {
+      led_write trigger timer
+      led_write delay_on 100
+      led_write delay_off 100
+  }
+
+  log() {
+      logger -t orb-installer "$@" 2>/dev/null || true
+  }
+
+  boot() {
+      # No eMMC on this device variant — skip silently. Some E20C
+      # units ship without onboard flash; a single image covers both.
+      [ -b "$EMMC_DEVICE" ] || { log "no eMMC at $EMMC_DEVICE, skipping"; return 0; }
+
+      # SD device missing — we can't install from nothing. Covers
+      # the case where this service is running on an eMMC-booted
+      # device with no SD inserted.
+      [ -b "$SD_DEVICE" ] || { log "no SD at $SD_DEVICE, skipping"; return 0; }
+
+      # Compute sector count: copy ONLY the static content from sector
+      # 0 through end-of-squashfs. This covers the partition table,
+      # the boot partition (p1), and the read-only squashfs — but
+      # deliberately EXCLUDES the live overlay that occupies the tail
+      # of p2. The eMMC boots with a fresh overlay, re-runs
+      # uci-defaults, and settles into its own clean state.
+      #
+      # loop0 is the ext4 OVERLAY (not the squashfs). Its offset
+      # within p2 tells us where the squashfs ENDS. So the copy
+      # boundary is: p2_start + loop0_offset_in_sectors. Everything
+      # beyond that is live overlay data which must NOT be copied.
+      local p2_start loop0_offset offset_sectors count
+      p2_start=$(cat "/sys/class/block/$SIZE_PARTITION/start" 2>/dev/null)
+      loop0_offset=$(cat /sys/block/loop0/loop/offset 2>/dev/null || echo 0)
+      if [ -z "$p2_start" ] || [ -z "$loop0_offset" ]; then
+          log "ERROR: could not determine copy size (p2_start=$p2_start loop0_offset=$loop0_offset)"
+          led_error
+          return 1
+      fi
+      offset_sectors=$(( (loop0_offset + 511) / 512 ))
+      count=$((p2_start + offset_sectors))
+
+      log "starting SD->eMMC install: $SD_DEVICE -> $EMMC_DEVICE, $count sectors ($((count / 2048)) MiB)"
+      led_working
+
+      # Zero the eMMC's hardware boot partitions (boot0/boot1) if they
+      # exist. Some boards (e.g. NanoPi R5C) ship with a factory Armbian
+      # SPL in boot0 that the Rockchip BROM loads first, overriding our
+      # OpenWrt SPL in the main area. Zeroing forces the BROM to fall
+      # through to the main area where our dd'd content lives. The
+      # partitions are read-only by default; force_ro must be cleared.
+      # Harmless on boards where boot partitions don't exist or are empty.
+      for bp in "${EMMC_DEVICE}boot0" "${EMMC_DEVICE}boot1"; do
+          [ -b "$bp" ] || continue
+          local ro_path="/sys/class/block/$(basename $bp)/force_ro"
+          if [ -f "$ro_path" ]; then
+              echo 0 > "$ro_path" 2>/dev/null || true
+          fi
+          dd if=/dev/zero of="$bp" bs=512 count=8192 >/dev/null 2>&1 || true
+          log "zeroed $bp"
+      done
+
+      sync
+
+      # Run dd standalone, NOT piped to logger. Piping to logger masks
+      # dd's real exit status behind logger's, which burned us badly in
+      # the Phase 2 bring-up: dd was silently failing at install time
+      # but the pipeline reported success, the sentinel was written, the
+      # LED went solid, and we had no idea the eMMC was untouched until
+      # we tried to boot from it. Capture dd's stderr to a temp file and
+      # check its real exit status, then log the captured output.
+      local dd_log dd_status
+      dd_log=/tmp/orb-installer-dd.log
+      # Use a large block size to minimize I/O operations. bs=512 with
+      # ~300K sectors means ~300K individual reads from the SD, which
+      # starves the kernel's concurrent squashfs reads and causes
+      # "xz decompression failed" I/O errors. bs=1M reduces this to
+      # ~150 operations. Convert sector count to MB (round up).
+      local byte_count mb_count
+      byte_count=$((count * 512))
+      mb_count=$(( (byte_count + 1048575) / 1048576 ))
+      dd if="$SD_DEVICE" of="$EMMC_DEVICE" bs=1M count="$mb_count" conv=fsync >"$dd_log" 2>&1
+      dd_status=$?
+
+      # Zero 1 MB at the exact overlay start to wipe any old ext4/f2fs
+      # superblocks. mount_root probes this area on first boot — if it
+      # finds a valid-looking filesystem it tries to mount it instead of
+      # formatting fresh space. The overlay begins at (p2_start_bytes +
+      # loop0_offset) from disk start; use bs=512 seek=count to land
+      # precisely on that boundary, then zero 2048 sectors (1 MB).
+      dd if=/dev/zero of="$EMMC_DEVICE" bs=512 seek="$count" count=2048 conv=fsync >>"$dd_log" 2>&1
+
+      sync
+
+      # Belt-and-suspenders verification: even if dd exited 0, confirm
+      # that sector 0 of the eMMC now matches sector 0 of the SD. If it
+      # doesn't, the write silently didn't land and we should NOT mark
+      # the install successful. This MUST run before the PARTUUID
+      # randomization below, which intentionally modifies sector 0.
+      local sd_hash emmc_hash
+      sd_hash=$(dd if="$SD_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+      emmc_hash=$(dd if="$EMMC_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+
+      if [ "$dd_status" -eq 0 ] && [ -n "$sd_hash" ] && [ "$sd_hash" = "$emmc_hash" ]; then
+          # Randomize the eMMC's MBR disk signature (4 bytes at offset 440)
+          # so its PARTUUID differs from the SD's. Without this, both devices
+          # have PARTUUID=5452574f-02 (OpenWrt's default "OWRT" signature),
+          # the kernel finds the eMMC first during enumeration, and all
+          # subsequent "SD boots" actually boot from eMMC. boot.scr reads
+          # the PARTUUID dynamically via `part uuid`, so changing the
+          # signature is all that's needed — no boot.scr patching required.
+          head -c4 /dev/urandom | dd of="$EMMC_DEVICE" bs=1 seek=440 conv=notrunc >>"$dd_log" 2>&1
+          sync
+          log "install complete — all LEDs pulsing — safe to power off and remove SD"
+          while IFS= read -r line; do log "dd: $line"; done < "$dd_log"
+          rm -f "$dd_log"
+          led_done  # never returns — pulses all LEDs until power-off
+      fi
+
+      led_error
+      log "ERROR: install failed (dd_status=$dd_status sd_hash=$sd_hash emmc_hash=$emmc_hash) — SYS LED fast-blinking — reflash the SD card"
+      while IFS= read -r line; do log "dd: $line"; done < "$dd_log" 2>/dev/null
+      return 1
+  }
+  SENSORBOX_INSTALLER_EOF
+  chmod +x /etc/init.d/sensorbox-installer
+  /etc/init.d/sensorbox-installer enable
+  # Invoke directly — procd may have already iterated past START=20
+  # by the time uci-defaults created this service, so we can't rely
+  # on it being picked up in the same boot cycle. Backgrounded so
+  # uci-defaults can exit 0 and be deleted. The service stays enabled
+  # as a fallback for retry on next boot if this invocation fails.
+  /etc/rc.common /etc/init.d/sensorbox-installer boot &
+  {{/install_to_emmc}}
+
+  {{#telemetry_enabled}}
+  # System telemetry agent (Telegraf), pushing line protocol to a
+  # self-hosted TIG endpoint (e.g. orb-local-analytics on port 7082).
+  # Endpoint URL/credentials are baked into the image at build time and
+  # do not change at runtime — reflash to update.
+  #
+  # Config path: OpenWrt's apk telegraf package loads from /etc/telegraf.conf
+  # (not the upstream /etc/telegraf/telegraf.conf default). Overwriting the
+  # package-shipped sample config is the simplest reliable injection point.
+  mkdir -p /usr/libexec/orb-telemetry
+  cat > /etc/telegraf.conf <<'TGCFG_EOF'
+  [agent]
+    interval = "30s"
+    flush_interval = "30s"
+    omit_hostname = false
+
+  [[inputs.cpu]]
+    percpu = false
+    totalcpu = true
+  [[inputs.mem]]
+  [[inputs.disk]]
+    ignore_fs = ["tmpfs", "devtmpfs", "overlay", "squashfs"]
+  [[inputs.system]]
+  [[inputs.temp]]
+  [[inputs.net]]
+  [[inputs.exec]]
+    commands = ["/usr/libexec/orb-telemetry/wifi-temp.sh"]
+    timeout = "5s"
+    data_format = "influx"
+  {{#telemetry_include_wireless}}
+  [[inputs.wireless]]
+  {{/telemetry_include_wireless}}
+
+  [[outputs.http]]
+    url = "{{{telemetry_url}}}"
+    method = "POST"
+    data_format = "influx"
+    username = "{{{telemetry_username}}}"
+    password = "{{{telemetry_password}}}"
+    timeout = "10s"
+  TGCFG_EOF
+  chmod 600 /etc/telegraf.conf
+
+  # Wi-Fi module temperature probe. Per-module overrides (from the
+  # recipe's wifi_module option) run first; if none match, fall back
+  # to a generic hwmon scan for known Wi-Fi driver names. Either
+  # branch emits one line of InfluxDB line protocol on stdout, or
+  # nothing if no temperature is available.
+  cat > /usr/libexec/orb-telemetry/wifi-temp.sh <<'WIFITEMP_EOF'
+  #!/bin/sh
+  {{{wifi_temp_probe_override}}}
+  for hw in /sys/class/hwmon/hwmon*; do
+      [ -r "$hw/name" ] || continue
+      name=$(cat "$hw/name")
+      case "$name" in
+          mt76*|iwlwifi|iwl*|ath11k*|ath12k*|rtw89*|brcmfmac*) ;;
+          *) continue ;;
+      esac
+      [ -r "$hw/temp1_input" ] || continue
+      milli=$(cat "$hw/temp1_input")
+      printf 'wifi_temp,module=%s temp_celsius=%s\n' "$name" "$(awk "BEGIN{printf \"%.2f\", $milli/1000}")"
+      exit 0
+  done
+  WIFITEMP_EOF
+  chmod +x /usr/libexec/orb-telemetry/wifi-temp.sh
+
+  /etc/init.d/telegraf enable
+  /etc/init.d/telegraf start
+  {{/telemetry_enabled}}

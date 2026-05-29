@@ -1,0 +1,11 @@
+zero2:
+  path: "releases/{version}"
+  enabled: true
+  snapshot: false
+  package_changes: []
+  apk: true
+  builder:
+    repo: "https://github.com/dboze/openwrt"
+    branch: "add-rk3528-usb-gadget"
+    target: "rockchip/armv8"
+    defconfig: "zero2.defconfig"

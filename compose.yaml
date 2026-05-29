@@ -1,0 +1,111 @@
+name: sensorbox
+
+services:
+  # On-demand custom ImageBuilder builder. Always running, exposes an
+  # API at /builder/ (proxied through the selector nginx). Triggered
+  # by the firmware-selector when a recipe references a custom_branch.
+  # Only builds when the fork has new commits vs the existing container.
+  openwrt-builder:
+    build:
+      context: ./openwrt-builder
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      BRANCHES_FILE: /app/branches.yaml
+      CONTAINER_SOCKET_PATH: ${CONTAINER_SOCKET_PATH}
+      BASE_CONTAINER: "ghcr.io/openwrt/imagebuilder"
+      CACHE_DIR: /cache
+    volumes:
+      - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
+      - ./branches.yaml:/app/branches.yaml:ro
+      - ./openwrt-builder/configs:/builder-configs:ro
+      - openwrt-build-cache:/cache:rw
+    security_opt:
+      - label=disable
+
+  redis:
+    image: docker.io/redis/redis-stack-server
+    restart: unless-stopped
+    volumes:
+      - ./redis-data:/data:rw
+
+  # Both ASU services are built from the dboze/asu submodule on the
+  # orb-patches branch, which cherry-picks openwrt/asu#1589 (apk custom
+  # repository support). When #1589 merges upstream, the scheduled trigger
+  # at https://claude.ai/code/scheduled/trig_01QQw8LgQs5KLPTGdhkEQCia will
+  # report the merge and the submodule should be switched back to
+  # openwrt/asu main.
+  asu-server:
+    build:
+      context: ./asu
+      dockerfile: Containerfile
+    image: localhost/sensorbox/asu:orb-patches
+    restart: unless-stopped
+    command: uv run uvicorn --host 0.0.0.0 asu.main:app
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      # ASU's default cap on the `defaults` field is 20480 chars. Our
+      # rendered first-boot script (common + recipe + extras) is
+      # already ~22 KB once Tailscale + the orb-capture web UI are
+      # included. Bump generously so we have room for follow-on
+      # features without re-tripping this validation.
+      MAX_DEFAULTS_LENGTH: "65536"
+    volumes:
+      - ${PUBLIC_PATH}/store:${PUBLIC_PATH}/store:ro
+      - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
+      - ./branches.yaml:/app/branches.yaml:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
+
+  asu-worker:
+    build:
+      context: ./asu
+      dockerfile: Containerfile
+    image: localhost/sensorbox/asu:orb-patches
+    restart: unless-stopped
+    command: uv run rqworker --logging_level INFO
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MAX_DEFAULTS_LENGTH: "65536"
+    volumes:
+      - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
+      - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
+      - ./branches.yaml:/app/branches.yaml:ro
+    # The Podman machine VM runs Fedora CoreOS with SELinux enforcing.
+    # Without this, the worker can't open the bind-mounted Podman socket
+    # even though Unix perms would allow it (EACCES on stat).
+    security_opt:
+      - label=disable
+    depends_on:
+      - redis
+
+  selector:
+    image: docker.io/nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./firmware-selector/www:/usr/share/nginx/html:ro
+      # nginx config is a TEMPLATE rendered at container start by
+      # 10-resolver.sh below — it substitutes RESOLVER_PLACEHOLDER with
+      # the actual /etc/resolv.conf nameserver IP. Hardcoding fails
+      # whenever Podman gives the compose network a new gateway IP.
+      - ./selector/nginx.conf.template:/etc/nginx/sensorbox-template.conf:ro
+      - ./selector/resolver-entrypoint.sh:/docker-entrypoint.d/10-resolver.sh:ro
+      # Recipes mounted read-only; the entrypoint hook below copies them
+      # into a writable container-layer path and generates an index.json
+      # so the browser can enumerate devices without a directory listing.
+      - ./recipes:/orb-recipes-src:ro
+      - ./selector/generate-recipes-index.sh:/docker-entrypoint.d/40-generate-recipes-index.sh:ro
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - asu-server
+
+volumes:
+  # Persistent cache for the OpenWrt buildroot source tree and build
+  # artifacts. Survives container recreation so incremental builds
+  # only recompile what changed. ~5 GB when populated.
+  openwrt-build-cache:
