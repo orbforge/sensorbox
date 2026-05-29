@@ -2,6 +2,8 @@
 
 Self-hosted system for building OpenWrt-based network experience sensor images. Pick a supported device in a local web UI, provide Wi-Fi credentials and customize your install to get an SD-card image with ready to continuously monitor your network experience.
 
+<p align="center"><img src="docs/configurator.png" alt="sensorbox configurator UI" width="420"></p>
+
 **Status:** beta. sensorbox builds on two upstream projects:
 
 - [ASU](https://github.com/openwrt/asu)
