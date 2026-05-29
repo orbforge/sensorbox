@@ -2,7 +2,6 @@ id: friendlyarm_nanopi-zero2
 title: "NanoPi Zero2"
 description: "Compact Orb probe with M.2 slot for optional Wi-Fi. Uses a custom OpenWrt build — the first build may take ~45 minutes if the ImageBuilder hasn't been pre-built yet."
 vendor_url: "https://wiki.friendlyelec.com/wiki/index.php/NanoPi_Zero2"
-docs_url: "https://orb.net/docs/devices/nanopi-zero2"
 
 target: rockchip/armv8
 profile: friendlyarm_nanopi-zero2

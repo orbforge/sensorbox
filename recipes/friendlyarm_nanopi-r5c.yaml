@@ -2,7 +2,6 @@ id: friendlyarm_nanopi-r5c
 title: "NanoPi R5C"
 description: "Compact Orb probe with two GbE ports and an M.2 slot for optional Wi-Fi."
 vendor_url: "https://www.friendlyelec.com/index.php?route=product/product&product_id=290"
-docs_url: "https://orb.net/docs/devices/nanopi-r5c"
 
 target: rockchip/armv8
 profile: friendlyarm_nanopi-r5c

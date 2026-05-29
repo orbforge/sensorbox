@@ -2,7 +2,6 @@ id: radxa_e20c
 title: "Radxa E20C"
 description: "Ethernet-only Orb probe. Two GbE ports bridged as a single LAN client; plug either port into the user's network."
 vendor_url: "https://docs.radxa.com/en/e/e20c"
-docs_url: "https://orb.net/docs/devices/radxa-e20c"
 install_notes: |
   1. Flash the downloaded image to an **SD card** using [balenaEtcher](https://etcher.balena.io/) or `dd`.
   2. Insert the SD card into the E20C and connect power (no ethernet yet).

@@ -2,7 +2,6 @@ id: raspberrypi_rpi-4
 title: "Raspberry Pi 4 / CM4"
 description: "Raspberry Pi 4B, Pi 400, or CM4 with a carrier board (e.g. WLAN Pi M4+ / Mcuzone Wi-Fi 7 PoE). Wi-Fi via onboard Broadcom or an M.2 Intel BE200."
 vendor_url: "https://www.raspberrypi.com/products/raspberry-pi-4-model-b/"
-docs_url: "https://orb.net/docs/devices"
 
 target: bcm27xx/bcm2711
 profile: rpi-4
