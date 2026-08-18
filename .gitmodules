@@ -4,5 +4,5 @@
 	branch = sensorbox-patches
 [submodule "asu"]
 	path = asu
-	url = git@github.com:orbforge/asu.git
+	url = git@github.com:openwrt/asu.git
 	branch = sensorbox-patches
