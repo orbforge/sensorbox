@@ -61,6 +61,57 @@ without touching the device's storage.
 Exit status is 0 on pass, 1 on assertion failure — so this drops into CI or
 a loop unchanged.
 
+## Building what the web form builds
+
+`build.py --form values.yaml` produces exactly what the UI produces, including
+uci-defaults, so form-driven features are testable end to end: root password,
+Wi-Fi credentials and band policy, `ORB_DEPLOYMENT_TOKEN`, `ttylogin`, the
+eMMC installer block, and the option-gated template sections.
+
+The templating is **not** re-implemented. `render_defaults.mjs` imports the
+selector's own `mergedPackages()` and `assembleDefaults()` and runs them under
+Node against the same vendored Mustache, so the harness cannot drift from the
+UI. Change a recipe template and this follows automatically.
+
+```sh
+./build.py --recipe radxa_e20c --form ../path/to/values.yaml
+```
+
+The form file mirrors what the UI collects:
+
+```yaml
+formValues:
+  root_password: "..."
+  orb_token: "..."
+  wifi_ssid: "..."          # omit on ethernet-only boards
+  wifi_password: "..."
+  install_to_emmc: true
+  telemetry_enabled: false
+  tailscale_enabled: false
+selectedOptions: {}          # e.g. {wifi_module: intel_be200}
+extraDefaults: |
+  # appended verbatim, like the UI's extra-defaults box
+```
+
+Values the UI derives rather than asks for are filled in automatically:
+`orb_apk_key` from the recipe's first `repository_keys` entry, and the
+`install_*` values from the recipe's `install` block when `install_to_emmc`
+is set.
+
+**Without `--form`, no defaults are sent at all.** That yields an unhardened
+image — no `ttylogin`, no root password, so its serial console opens a root
+shell. Fine for validating that a build and boot work, wrong for anything
+that depends on the credential-injection path.
+
+Two limits to know: ASU needs `ALLOW_DEFAULTS=1` in its env (already set in
+`.env.example`) or it rejects `defaults` outright, and it caps them at
+`max_defaults_length`, 20480 bytes by default. A realistic E20C form with the
+eMMC installer enabled renders about 15.7 KB, so turning on several more
+options can approach that ceiling.
+
+**The form file holds real secrets** — a live deployment token and passwords.
+Keep it outside the repo; `hwtest/*.form.yaml` is gitignored as a guard.
+
 ## What gets asserted
 
 Configured per target in `targets.yaml`. For the E20C the load-bearing one is
