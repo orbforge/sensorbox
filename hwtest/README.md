@@ -36,12 +36,21 @@ Neither is needed again, and nothing in normal operation requires `sudo`.
   `ethernet@ffbe0000`, U-Boot's only network device. The second port is a
   PCIe Realtek that U-Boot cannot see.
 
-Set the host address once, and it persists:
+Set the host address once. Bind it to the adapter's **MAC**, not its
+interface name — predictable interface names encode the USB port path, so
+moving the dongle to a different port renames it (`enp198s0f4u1` ->
+`enp198s0f3u1`), the name-bound profile stops applying, and the interface
+comes up with no address at all. The symptom is U-Boot reporting
+`ARP Retry count exceeded`, which looks like a cabling fault but is not.
 
 ```sh
-nmcli con add type ethernet ifname <iface> con-name sensorbox-lab \
+nmcli con add type ethernet con-name sensorbox-lab \
+      802-3-ethernet.mac-address <adapter MAC> \
       ipv4.method manual ipv4.addresses 10.0.0.1/24 ipv6.method disabled
 ```
+
+If TFTP ever fails at ARP, check `ip -br addr` first: a carrier at 1000 Mbps
+with no IPv4 address on the dongle is this exact problem.
 
 ## Usage
 
