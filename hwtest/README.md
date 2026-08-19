@@ -75,29 +75,47 @@ was there, rather than the old system booting again.
 
 ## Getting the board back into U-Boot
 
-To catch U-Boot's ~2 s autoboot window the board has to be reset. `targets.yaml`
-picks how, via `reset.method`:
+To catch U-Boot's ~2 s autoboot window the board has to be reset.
+`reset.methods` in `targets.yaml` lists the ways to try, in order. They
+degrade in how much of the DUT has to still be working:
 
-- **`console_reboot`** (default) — log in on the serial console and run
-  `reboot`. No extra hardware, no human, so the loop runs unattended. This is
-  what you want almost always. Set `login_user`/`login_password` to match the
-  image: a selector-built one sets `ttylogin` and a root password through
-  uci-defaults, while an image from `build.py` has no defaults and drops
-  straight to a root shell.
-- **`command`** — run `power_cycle_cmd`. The only method that recovers a board
-  whose kernel no longer boots, since there is then no shell to log into.
-- **`manual`** — print a notice and wait for a person. Used as the `fallback`.
+| method | needs | recovers a board that… |
+|---|---|---|
+| `sysrq_reboot` | a live kernel | has wedged userspace |
+| `console_reboot` | working userspace | boots normally |
+| `command` | external power switching | does not boot at all |
+| `manual` | a person | anything |
+
+**`sysrq_reboot` is the default.** It sends a serial BREAK followed by `b`,
+which is magic SysRq's "reboot immediately". Because SysRq is handled in
+kernel interrupt context it fires even when userspace is hung, and it needs
+no login and no password at all. It requires `/proc/sys/kernel/sysrq` to be
+non-zero on the DUT — it is, on OpenWrt here.
+
+The trade-off: SysRq resets without syncing filesystems, so it can leave the
+overlay dirty. That is fine when the next step is a full reflash, and it is
+arguably a more faithful stand-in for a power cycle than a clean shutdown.
+
+`console_reboot` sits behind it for the case where SysRq is disabled. Fill in
+`login_user`/`login_password` to match the image: a selector-built one sets
+`ttylogin` and a root password via uci-defaults, while an image from
+`build.py` has no defaults and drops straight to a root shell.
+
+`reboot_marker` is the string that proves a cold restart happened. It is the
+DDR init banner rather than the U-Boot banner on purpose — the autoboot
+prompt follows the U-Boot banner within milliseconds, so syncing on that
+would miss the window entirely.
 
 ### Note for the E20C specifically
 
 It has **no UART header**; its debug USB-C port is an onboard USB-serial
-bridge. So the common trick of driving a relay from the adapter's DTR/RTS
+bridge. So the usual trick of driving a relay from the adapter's DTR/RTS
 lines is *not* available — those pins are inside the board. Power switching
-must be external and independent of the serial path: a LAN smart plug or a
+has to be external and independent of the serial path: a LAN smart plug or a
 USB relay module in the supply line, wired into `power_cycle_cmd`.
 
 `SerialConsole.set_line()` can still toggle DTR/RTS for boards that *do*
-expose them via an external adapter.
+expose them through an external adapter.
 
 ## Constraints worth knowing
 

@@ -99,6 +99,20 @@ class SerialConsole:
         bits = (bits | bit) if asserted else (bits & ~bit)
         fcntl.ioctl(self.fd, TIOCMSET, struct.pack("I", bits))
 
+    def send_break(self):
+        """Assert a serial BREAK condition.
+
+        On a Linux serial console a BREAK is the magic-SysRq prefix, so
+        BREAK followed by a command byte reaches the kernel directly.
+        """
+        termios.tcsendbreak(self.fd, 0)
+
+    def sysrq(self, key):
+        """Issue a magic SysRq command (e.g. "b" to reboot immediately)."""
+        self.send_break()
+        time.sleep(0.05)
+        os.write(self.fd, key.encode())
+
     # --- io ------------------------------------------------------------------
 
     def _record(self, data, echo):

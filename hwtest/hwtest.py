@@ -68,6 +68,33 @@ class Tftpd:
             self.proc.wait(timeout=5)
 
 
+def sysrq_reboot(con, cfg):
+    """Reboot the DUT with magic SysRq (BREAK + 'b') over the serial console.
+
+    Better than the `reboot` command for a test rig: SysRq is handled in
+    kernel interrupt context, so it fires even when userspace is wedged, and
+    it needs no login and no password. The trade-off is that it resets
+    immediately without syncing filesystems -- closer to a power cycle, which
+    is what we want here, though it can leave the overlay dirty.
+
+    Requires the DUT kernel to have magic SysRq enabled
+    (`/proc/sys/kernel/sysrq` non-zero); OpenWrt on the E20C does.
+    """
+    marker = cfg.get("reboot_marker", "DDR ")
+    con.buffer = b""
+    log("sending BREAK + 'b' (magic SysRq reboot)")
+    con.sysrq("b")
+    # Confirm the SoC really restarted before handing off to the autoboot tap.
+    # Waiting on the DDR banner rather than the U-Boot banner is deliberate:
+    # the autoboot prompt follows the U-Boot banner within milliseconds, so
+    # syncing on that would be too late to catch the window.
+    if con.read_for(cfg.get("reboot_wait", 25), until=marker):
+        log("DUT restarted")
+        return True
+    log("no restart seen after SysRq (is /proc/sys/kernel/sysrq zero?)")
+    return False
+
+
 def console_reboot(con, cfg):
     """Log in over the serial console and run `reboot`.
 
@@ -108,27 +135,40 @@ def console_reboot(con, cfg):
 
 
 def reset_dut(con, target):
-    """Get the DUT back into U-Boot's autoboot window."""
+    """Get the DUT back into U-Boot's autoboot window.
+
+    Tries each configured method in order. They degrade in the amount of the
+    DUT that has to still be working: SysRq needs a live kernel, a console
+    reboot needs working userspace, and only `command` can recover a board
+    that no longer boots at all.
+    """
     cfg = target.get("reset") or {}
-    method = cfg.get("method", "manual")
+    methods = cfg.get("methods") or [cfg.get("method", "manual")]
 
-    if method == "console_reboot":
-        if console_reboot(con, cfg):
+    for method in methods:
+        if method == "sysrq_reboot":
+            if sysrq_reboot(con, cfg):
+                return
+        elif method == "console_reboot":
+            if console_reboot(con, cfg):
+                return
+        elif method == "command":
+            cmd = target.get("power_cycle_cmd")
+            if cmd:
+                log("power-cycling via: %s" % cmd)
+                subprocess.run(cmd, shell=True, check=True)
+                return
+            log("method 'command' configured but power_cycle_cmd is unset")
+        elif method == "manual":
+            log("=" * 62)
+            log("POWER-CYCLE THE BOARD NOW")
+            log("=" * 62)
             return
-        method = cfg.get("fallback", "manual")
-        log("console reboot unavailable -- falling back to %r" % method)
+        else:
+            log("unknown reset method %r" % method)
+        log("reset via %r did not work -- trying the next method" % method)
 
-    if method == "command":
-        cmd = target.get("power_cycle_cmd")
-        if not cmd:
-            sys.exit("reset method 'command' but no power_cycle_cmd configured")
-        log("power-cycling via: %s" % cmd)
-        subprocess.run(cmd, shell=True, check=True)
-        return
-
-    log("=" * 62)
-    log("POWER-CYCLE THE BOARD NOW")
-    log("=" * 62)
+    sys.exit("every configured reset method failed")
 
 
 def assert_boot(logtext, target):

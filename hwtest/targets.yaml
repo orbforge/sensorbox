@@ -45,29 +45,39 @@ radxa_e20c:
     start_block: 0
 
   reset:
-    # How the harness gets the board back into U-Boot's ~2s autoboot window.
+    # Tried in order until one works. They degrade in how much of the DUT has
+    # to still be alive:
     #
-    #   console_reboot -- log in over the serial console and run `reboot`.
-    #                     Needs no extra hardware and no human, so this is
-    #                     the default. Only works while the DUT still boots.
-    #   command        -- run power_cycle_cmd below. The ONLY method that can
-    #                     recover a board whose kernel does not boot at all,
-    #                     e.g. after a bad write.
+    #   sysrq_reboot   -- BREAK + 'b' on the console. Handled in kernel
+    #                     interrupt context, so it works even when userspace
+    #                     is wedged, and needs no login or password. Needs
+    #                     /proc/sys/kernel/sysrq non-zero (it is, on OpenWrt
+    #                     here). Resets without syncing, so the overlay can
+    #                     be left dirty -- fine when the next step is a
+    #                     full reflash.
+    #   console_reboot -- log in on the console and run `reboot`. Needs
+    #                     working userspace, and credentials if the image
+    #                     sets ttylogin.
+    #   command        -- run power_cycle_cmd. The ONLY method that recovers a
+    #                     board whose kernel does not boot at all.
     #   manual         -- print a notice and wait for a person.
     #
     # Note the E20C has no UART header: its debug USB-C port is an onboard
-    # USB-serial bridge. So the DTR/RTS-to-relay trick is NOT available here
-    # -- those pins are inside the board. Power switching has to be external
-    # and independent of the serial path (LAN smart plug or USB relay).
-    method: console_reboot
-    # A selector-built image sets ttylogin and a root password via
-    # uci-defaults, so fill these in for one of those. An image built by
-    # build.py has no defaults and drops straight to a root shell.
+    # USB-serial bridge, so the usual DTR/RTS-to-relay trick is unavailable --
+    # those pins are inside the board. Any power switching must be external.
+    methods: [sysrq_reboot, console_reboot, manual]
+
+    # Earliest evidence of a cold restart. Deliberately the DDR init banner
+    # and not the U-Boot one: the autoboot prompt follows the U-Boot banner
+    # within milliseconds, so syncing on that would miss the window.
+    reboot_marker: "DDR "
+    reboot_wait: 25
+
+    # Only needed by console_reboot. A selector-built image sets ttylogin and
+    # a root password via uci-defaults; an image from build.py has no defaults
+    # and drops straight to a root shell.
     login_user: root
     login_password: null
-    # Used when the chosen method fails -- typically because the DUT no
-    # longer boots, which is exactly when you want the hardware path.
-    fallback: manual
 
   power_cycle_cmd: null
 
