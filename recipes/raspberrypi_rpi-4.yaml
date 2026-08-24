@@ -8,7 +8,7 @@ profile: rpi-4
 arch: aarch64_cortex-a72
 # Untested at this version on rpi-4 — bump after validating Wi-Fi association
 # end-to-end on real hardware (any of: Pi 4B onboard, CM4 onboard, M.2 BE200).
-version: "25.12.2"
+version: "25.12.5"
 
 capabilities:
   wifi: true
