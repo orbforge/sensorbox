@@ -88,7 +88,7 @@ From the repository root:
 podman-compose up -d
 ```
 
-Open <http://localhost:8080/> in your browser, select your device, and configure. The first run pulls the ASU image and builds the openwrt-builder image (a few minutes). Subsequent runs are fast.
+Open <http://localhost:8080/> in your browser (or whichever port you set as `SELECTOR_PORT` in `.env`), select your device, and configure. The first run pulls the ASU image and builds the openwrt-builder image (a few minutes). Subsequent runs are fast.
 
 Devices that are not in the latest stable OpenWrt release will need to compile from source, which may take a long time for the initial build (e.g. 35 minutes on an M1 MacBook Pro). Subsequent runs are fast.
 

@@ -56,7 +56,9 @@ services:
       - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
       - ./branches.yaml:/app/branches.yaml:ro
     ports:
-      - "127.0.0.1:8000:8000"
+      # Host-side port only; the container always listens on 8000, which is
+      # what selector/nginx.conf.template proxies to internally.
+      - "127.0.0.1:${ASU_PORT:-8000}:8000"
     depends_on:
       - redis
 
@@ -100,7 +102,9 @@ services:
       - ./recipes:/orb-recipes-src:ro
       - ./selector/generate-recipes-index.sh:/docker-entrypoint.d/40-generate-recipes-index.sh:ro
     ports:
-      - "127.0.0.1:8080:80"
+      # Host-side port only; nginx inside the container always listens on 80.
+      # Defaults keep the stack working for an .env predating these vars.
+      - "127.0.0.1:${SELECTOR_PORT:-8080}:80"
     depends_on:
       - asu-server
 

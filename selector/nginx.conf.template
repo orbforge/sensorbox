@@ -31,8 +31,9 @@ server {
         try_files $uri =404;
     }
 
-    # Same-origin proxy to ASU. The browser talks only to this nginx on :8080,
-    # so there is no cross-origin request and ASU does not need CORS headers.
+    # Same-origin proxy to ASU. The browser talks only to this nginx (port 80
+    # in-container, published on the host as SELECTOR_PORT), so there is no
+    # cross-origin request and ASU does not need CORS headers.
     # Using a variable in proxy_pass forces nginx to re-resolve the hostname
     # via the resolver above on each request, avoiding the stale-IP trap.
     location /api/ {
