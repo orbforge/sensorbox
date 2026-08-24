@@ -183,7 +183,10 @@ def main():
                    help="YAML/JSON of form values, to build exactly what the "
                         "web form would (including uci-defaults). Holds "
                         "secrets -- keep it out of the repo.")
-    p.add_argument("--asu", default="http://127.0.0.1:8000")
+    # Follows ASU_PORT from the environment (compose reads the same value from
+    # .env), so a host with 8000 already taken needs no flag here.
+    p.add_argument("--asu",
+                   default="http://127.0.0.1:%s" % os.environ.get("ASU_PORT", "8000"))
     p.add_argument("--timeout", type=float, default=1800)
     a = p.parse_args()
 
