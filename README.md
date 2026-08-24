@@ -92,7 +92,7 @@ Open <http://localhost:8080/> in your browser, select your device, and configure
 
 Devices that are not in the latest stable OpenWrt release will need to compile from source, which may take a long time for the initial build (e.g. 35 minutes on an M1 MacBook Pro). Subsequent runs are fast.
 
-Once your image builds, flashing instructions specific to your device will be provided in the download section. You can flash the image with popular tools such as Raspberry Pi Imager, balenaEtcher, or dd. For macOS, there is a script in `scripts/flash-sd.sh`.
+Once your image builds, flashing instructions specific to your device will be provided in the download section. You can flash the image with popular tools such as Raspberry Pi Imager, balenaEtcher, or dd. There are helper scripts in `scripts/flash-sd-macos.sh` and `scripts/flash-sd-linux.sh`.
 
 Tear down with:
 
