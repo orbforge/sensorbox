@@ -19,9 +19,8 @@ Read `GOALS.md` first — it is the source of truth for product intent and const
 
 sensorbox is licensed MIT. It depends on two upstream OpenWrt projects handled very differently:
 
-- **ASU** (Attended Sysupgrade Server, https://github.com/openwrt/asu, GPL-2.0). Built from the **`asu/` submodule pointing at `dboze/asu` on the `orb-patches` branch**. The `orb-patches` branch is upstream `openwrt/asu` main with a four-commit cherry-pick of open PR **openwrt/asu#1590** ("Support additional apk feeds" by andibraeu) applied on top. This cherry-pick is the minimum ASU needs to support **custom apk package feeds in `append` mode** — which sensorbox requires to bake the `orb` package into 24.10+/25.xx images at build time without losing the stock OpenWrt feeds. PR #1590 (not #1589; see below) is the right one because it preserves the default `packages.adb` feeds; #1589 only supports replace-mode and causes "impossible package selection" errors for every stock package. A scheduled remote trigger at https://claude.ai/code/scheduled/trig_01QQw8LgQs5KLPTGdhkEQCia checks daily whether PR #1590 has merged upstream; when it does, the next interactive session should switch the submodule URL back to `openwrt/asu` directly and the fork becomes vestigial. Both `asu-server` and `asu-worker` in `compose.yaml` build from this submodule using upstream's `Containerfile` (unmodified) and tag the resulting image as `localhost/sensorbox/asu:orb-patches`. Python/FastAPI + RQ workers + Redis; the worker spawns per-build containers via the **Podman** API (not Docker — see "Why Podman" below).
+- **ASU** (Attended Sysupgrade Server, https://github.com/openwrt/asu, GPL-2.0). Run from upstream's published image, pinned by digest in `compose.yaml` — there is no `asu/` submodule and no fork. sensorbox previously vendored a fork to obtain **custom apk feeds in `append` mode**, which it needs to bake the `orb` package into 24.10+/25.xx images without losing the stock OpenWrt feeds; that support is upstream now (`repositories_mode == "append"` in `asu/build.py`), so the fork is gone. Upstream publishes only a floating `:latest`, so the image is pinned by digest: this stack bakes credentials into firmware, and build inputs should not shift under a rebuild without a commit recording it. Python/FastAPI + RQ workers + Redis; the worker spawns per-build containers via the **Podman** API (not Docker — see "Why Podman" below).
 - **Firmware Selector** (upstream GitLab: openwrt/web/firmware-selector-openwrt-org). Forked to https://github.com/dboze/firmware-selector-openwrt-org and included as a **git submodule at `firmware-selector/`**. This is where Orb-specific UI code belongs. The submodule has an `upstream` remote configured for syncing improvements from OpenWrt. Configurable knobs the Orb UI must expose (per GOALS.md): supported Wi-Fi card, SSID/security/password, `ORB_DEPLOYMENT_TOKEN`, root password, Wi-Fi band policy (auto / 2.4 / 5 / 6 GHz). Future nice-to-have: pointing the device at the local ASU for periodic security upgrades.
-- `asu/` — git submodule (see above). Source lives here; compose builds the image from it.
 - `GOALS.md` — product brief.
 
 **Working in the submodule:** if you edit anything under `firmware-selector/`, you're making commits in the fork repo, not in sensorbox. Commit and push inside the submodule first, then come back to sensorbox and commit the updated submodule pointer. `git status` in sensorbox will show `firmware-selector` as "modified" until you do.
@@ -32,7 +31,7 @@ ASU's build worker imports `podman-py` and talks to the Podman REST API over a U
 
 ## Working with the subprojects
 
-### ASU (built from submodule with PR #1590 cherry-pick)
+### ASU (upstream image, pinned by digest)
 
 **Baking the `orb` package into images.** The Orb apk feed lives at `https://pkgs.orb.net/stable/openwrt-apk/$ARCH/packages.adb` and is signed by `orb-apk-ec.pub` (EC key). To include Orb in a build, the ASU build request must set:
 
@@ -51,11 +50,7 @@ This has been validated end-to-end for rockchip/armv8 radxa_e20c on OpenWrt 25.1
 - Python project managed with `uv`; entrypoint `asu/main.py` (FastAPI).
 - Runs as a multi-container stack via `podman-compose.yml` (server + Podman API + worker + Redis). Builds happen **inside containers** for isolation — don't try to run ImageBuilder directly on the host.
 - `ALLOW_DEFAULTS=1` in the ASU env is required for the custom uci-defaults script flow that sensorbox depends on (baking in credentials).
-- Dev commands (run from `asu/`, only if you need to hack on ASU itself — normally you won't):
-  - `uv sync --extra dev`
-  - `uv run fastapi dev asu/main.py`
-  - `uv run rq worker` (needs `source .env` first)
-- Tests live under `asu/tests/`.
+- To hack on ASU itself, clone https://github.com/openwrt/asu separately and point `compose.yaml` at a local build; there is no in-tree checkout any more.
 
 Because this is GPL-2.0 and we've committed to not modifying it, any Orb-specific behavior should live in sensorbox's own layer (compose file, config, sidecar service, or fork of firmware-selector), not in patches to `asu/`.
 
