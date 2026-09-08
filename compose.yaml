@@ -29,17 +29,17 @@ services:
     volumes:
       - ./redis-data:/data:rw
 
-  # Both ASU services are built from the dboze/asu submodule on the
-  # orb-patches branch, which cherry-picks openwrt/asu#1589 (apk custom
-  # repository support). When #1589 merges upstream, the scheduled trigger
-  # at https://claude.ai/code/scheduled/trig_01QQw8LgQs5KLPTGdhkEQCia will
-  # report the merge and the submodule should be switched back to
-  # openwrt/asu main.
+  # Both ASU services run upstream's published image. sensorbox used to build
+  # from a vendored fork to get custom apk feeds in "append" mode; that support
+  # is upstream now, so the fork and its submodule are gone.
+  #
+  # Pinned by digest, not :latest -- upstream publishes only a floating tag,
+  # and this stack bakes credentials into firmware, so the build inputs should
+  # not change underneath a rebuild without a commit saying so. To update:
+  #   podman pull docker.io/openwrt/asu:latest
+  #   podman image inspect docker.io/openwrt/asu:latest --format '{{.Digest}}'
   asu-server:
-    build:
-      context: ./asu
-      dockerfile: Containerfile
-    image: localhost/sensorbox/asu:orb-patches
+    image: docker.io/openwrt/asu@sha256:1359bbc4fd3e244c0c5e6f1a5f8b16fb18ca355a2b4017b09ca8467afc05e2a1
     restart: unless-stopped
     command: uv run uvicorn --host 0.0.0.0 asu.main:app
     env_file: .env
@@ -63,10 +63,7 @@ services:
       - redis
 
   asu-worker:
-    build:
-      context: ./asu
-      dockerfile: Containerfile
-    image: localhost/sensorbox/asu:orb-patches
+    image: docker.io/openwrt/asu@sha256:1359bbc4fd3e244c0c5e6f1a5f8b16fb18ca355a2b4017b09ca8467afc05e2a1
     restart: unless-stopped
     command: uv run rqworker --logging_level INFO
     env_file: .env
