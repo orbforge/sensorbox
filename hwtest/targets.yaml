@@ -5,7 +5,7 @@
 # eMMC device U-Boot exposes -- so this file is the only thing that should
 # need editing when the bench changes.
 
-radxa_e20c:
+radxa_e20c: &radxa_e20c
   description: "Radxa E20C on the bench, flashed over serial + TFTP"
 
   serial:
@@ -100,3 +100,22 @@ radxa_e20c:
     # Only expected on the first boot after a fresh write. Absence is not a
     # failure -- it just means the overlay survived, i.e. not a clean flash.
     fresh_flash_hint: "has not been formatted yet"
+
+# Same board, but with the bench dongle and the E20C both plugged into the
+# wired LAN switch instead of a point-to-point cable. TFTP still works because
+# host and DUT share one L2 segment (U-Boot ARPs the host directly); the
+# earlier failure through the house router was the host being on wifi. This
+# variant is what you want when the DUT also needs internet after the flash,
+# e.g. to confirm Orb links. The DUT address is a static one U-Boot uses only
+# for the transfer; once Linux boots, br-lan DHCPs from the router as usual.
+#
+# The cable MUST be in the E20C's LAN port (eth0, rk_gmac-dwmac). With it in
+# the WAN port (eth1, r8169) Linux is happy but U-Boot has no link at all.
+radxa_e20c_lan:
+  <<: *radxa_e20c
+  description: "Radxa E20C on the bench, flashed over serial + TFTP across the wired LAN"
+  network:
+    host_ip: 192.168.0.210
+    dut_ip: 192.168.0.250
+    netmask: 255.255.255.0
+    tftp_port: 6969

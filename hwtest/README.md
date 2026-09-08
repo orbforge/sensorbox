@@ -52,6 +52,28 @@ nmcli con add type ethernet con-name sensorbox-lab \
 If TFTP ever fails at ARP, check `ip -br addr` first: a carrier at 1000 Mbps
 with no IPv4 address on the dongle is this exact problem.
 
+### Alternative: both on the wired LAN
+
+The point-to-point cable is not the only layout that works. If the dongle and
+the E20C are both plugged into the same wired switch, TFTP works across it
+(U-Boot ARPs the host directly on the shared segment; the earlier failure
+through the house router was the host being on wifi). `targets.yaml` carries
+this as `radxa_e20c_lan`, with the host's LAN address and a static DUT
+address U-Boot uses only for the transfer:
+
+```sh
+./hwtest.py --target radxa_e20c_lan flash --image ...
+```
+
+Use this when the DUT must reach the internet right after the flash, for
+example to confirm Orb links. Adjust `host_ip` to whatever the dongle holds
+on your LAN, and pick a `dut_ip` outside the router's DHCP pool.
+
+Either way the cable goes in the E20C's **LAN** port. From a booted system
+the LAN port is `eth0` (driver `rk_gmac-dwmac`) and the WAN port is `eth1`
+(driver `r8169`); if `/sys/class/net/eth0/carrier` reads 0, U-Boot has no
+link and TFTP will fail with `ARP Retry count exceeded`.
+
 ## Usage
 
 ```sh

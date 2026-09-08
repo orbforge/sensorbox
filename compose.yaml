@@ -72,13 +72,26 @@ services:
       MAX_DEFAULTS_LENGTH: "65536"
     volumes:
       - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
-      - ${CONTAINER_SOCKET_PATH}:${CONTAINER_SOCKET_PATH}:rw
+      # Upstream ASU no longer reads CONTAINER_SOCKET_PATH; its worker probes
+      # only ./podman.sock and /var/podman.sock inside the container
+      # (asu/util.py _find_podman_socket). So the host socket has to land at
+      # exactly this destination or every build fails with
+      # "Unable to make connection to UDS '/var/podman.sock'".
+      - ${CONTAINER_SOCKET_PATH}:/var/podman.sock:rw
       - ./branches.yaml:/app/branches.yaml:ro
     # The Podman machine VM runs Fedora CoreOS with SELinux enforcing.
     # Without this, the worker can't open the bind-mounted Podman socket
     # even though Unix perms would allow it (EACCES on stat).
     security_opt:
       - label=disable
+    # Upstream ASU attaches every per-build container to a Podman network
+    # literally named "asu-build" (asu/build.py). Upstream's own compose marks
+    # it external and expects a manual `podman network create`; listing the
+    # worker on it here makes compose create it instead, so `up` stays the
+    # only step. `default` keeps the worker's route to redis.
+    networks:
+      - default
+      - asu-build
     depends_on:
       - redis
 
@@ -110,3 +123,12 @@ volumes:
   # artifacts. Survives container recreation so incremental builds
   # only recompile what changed. ~5 GB when populated.
   openwrt-build-cache:
+
+networks:
+  # Declared explicitly because asu-worker names its networks; a service that
+  # lists networks must list every one it joins, including the implicit one.
+  default: {}
+  # Build containers live here, isolated from redis and the selector. The
+  # name must be exactly asu-build because ASU asks for it by that string.
+  asu-build:
+    name: asu-build
