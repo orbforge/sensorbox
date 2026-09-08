@@ -6,7 +6,7 @@ vendor_url: "https://www.friendlyelec.com/index.php?route=product/product&produc
 target: rockchip/armv8
 profile: friendlyarm_nanopi-r5c
 arch: aarch64_generic
-version: "25.12.2"
+version: "25.12.5"
 
 capabilities:
   wifi: true
