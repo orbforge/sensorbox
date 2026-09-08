@@ -8,12 +8,20 @@ image, not to be a general file server. Writes (WRQ) are refused.
 """
 import argparse
 import os
+import re
 import socket
 import struct
 import sys
 import time
 
 RRQ, WRQ, DATA, ACK, ERROR, OACK = 1, 2, 3, 4, 5, 6
+
+# "<file>@<offset>+<length>" serves that byte range of <file> instead of a
+# file on disk. hwtest.py uses it to move an image larger than the DUT's RAM
+# in pieces, without materialising gigabytes of temporary chunk files. '@'
+# and '+' are safe in a U-Boot tftpboot filename; only ':' is special there
+# (it separates serverip from the path).
+SLICE = re.compile(r"^(.+)@(\d+)\+(\d+)$")
 
 
 def log(msg):
@@ -37,17 +45,33 @@ def parse_request(data):
     return filename, mode, opts
 
 
+def refuse(client, code, msg):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    send_error(s, client, code, msg)
+    s.close()
+
+
 def serve_file(root, filename, mode, opts, client):
+    offset, length = 0, None
+    m = SLICE.match(filename)
+    if m:
+        filename, offset, length = m.group(1), int(m.group(2)), int(m.group(3))
     safe = os.path.normpath("/" + filename).lstrip("/")
     path = os.path.join(root, safe)
     if not os.path.isfile(path):
         log("  -> NOT FOUND: %s" % path)
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        send_error(s, client, 1, "File not found")
-        s.close()
+        refuse(client, 1, "File not found")
         return
 
-    size = os.path.getsize(path)
+    total = os.path.getsize(path)
+    if length is None:
+        length = total
+    if offset + length > total:
+        log("  -> slice %d+%d runs past the end of %s (%d bytes)" % (offset, length, safe, total))
+        refuse(client, 1, "Slice past end of file")
+        return
+    size = length
+    label = safe if not m else "%s[%d:%d]" % (safe, offset, offset + length)
     blksize = 512
     ack_oack = False
     reply_opts = []
@@ -62,7 +86,7 @@ def serve_file(root, filename, mode, opts, client):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("", 0))
     sock.settimeout(3.0)
-    log("  -> %s (%d bytes, blksize=%d) to %s:%d" % (safe, size, blksize, client[0], client[1]))
+    log("  -> %s (%d bytes, blksize=%d) to %s:%d" % (label, size, blksize, client[0], client[1]))
 
     started = time.monotonic()
     try:
@@ -72,9 +96,14 @@ def serve_file(root, filename, mode, opts, client):
                 return
 
         with open(path, "rb") as fh:
+            fh.seek(offset)
+            remaining = size
             block = 1
             while True:
-                chunk = fh.read(blksize)
+                # A transfer whose size is an exact multiple of blksize still
+                # needs a final empty DATA packet; min(blksize, 0) gives it.
+                chunk = fh.read(min(blksize, remaining))
+                remaining -= len(chunk)
                 pkt = struct.pack("!HH", DATA, block & 0xFFFF) + chunk
                 if not await_ack(sock, pkt, client, block & 0xFFFF):
                     log("  -> ABORTED at block %d" % block)

@@ -21,6 +21,18 @@ arch: aarch64_generic
 # kernel 6.12.94, orb 1.5.4) on 2026-08-18.
 version: "25.12.5"
 
+# Size of the rootfs partition ImageBuilder lays down (its ROOTFS_PARTSIZE),
+# in MiB; the field is named after ASU's `rootfs_size_mb`. OpenWrt's default
+# is 104, sized for routers with a few MB of NOR flash. Every E20C boots from
+# an SD card or 8 GB+ eMMC, and everything past the squashfs in this
+# partition becomes the persistent overlay: Orb's state, Docker's data-root
+# (/opt/docker), logs. Ticking Docker + Tailscale alone installs ~280 MiB, so
+# at the default the build dies creating root.ext4 with "Selected packages
+# exceed device storage" (issue #3). 2048 fits any card or eMMC of 4 GB+ and
+# matches the Zero2 defconfig. The .img is padded to this size, so the
+# decompressed image is ~2.1 GB; the .gz download stays small.
+rootfs_size_mb: 2048
+
 capabilities:
   wifi: false
 

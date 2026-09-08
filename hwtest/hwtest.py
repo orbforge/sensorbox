@@ -5,7 +5,9 @@ Why this exists rather than `sysupgrade`: sysupgrade preserves the existing
 partition layout, so it cannot validate changes to that layout, and it needs a
 booted OS with working SSH -- exactly what a bad image destroys. This path
 drives U-Boot over serial and writes the WHOLE image, partition table
-included, so it works from a board whose kernel does not boot at all.
+included, so it works from a board whose kernel does not boot at all. Images
+bigger than the board's RAM are moved in pieces (flash.chunk_bytes); all-zero
+padding is zero-filled on the DUT rather than transferred.
 
     ./hwtest.py flash --image path/to/openwrt-...-sysupgrade.img
     ./hwtest.py flash --image ... --no-write   # transport only, eMMC untouched
@@ -29,6 +31,9 @@ from serial_console import SerialConsole, SerialConsoleError
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SECTOR = 512
+# U-Boot's default CONFIG_SYS_PROMPT. Commands with no output of their own
+# (mw) are synced on this reappearing.
+UBOOT_PROMPT = "=> "
 
 
 def log(msg):
@@ -134,17 +139,45 @@ def console_reboot(con, cfg):
     return True
 
 
+def uboot_reset(con, cfg):
+    """`reset` a board that is already sitting at the U-Boot prompt.
+
+    That is where an earlier flash run leaves it when it stops partway, and
+    from there SysRq does nothing (no kernel) and a login never comes. The
+    probe is an `echo`, NOT a bare CR: U-Boot re-runs the previous command on
+    an empty line, and the previous command was a tftpboot. U-Boot answers
+    with the marker on its own line followed by its prompt; a Linux shell
+    echoes the marker too but follows it with a `#` prompt, so the pair is
+    what identifies U-Boot. At a login prompt the probe is a failed username.
+    """
+    con.buffer = b""
+    con.send("echo HWTEST_PROBE")
+    con.read_for(1.5)
+    if not re.search(rb"\nHWTEST_PROBE\r?\n" + re.escape(UBOOT_PROMPT.encode()), con.buffer):
+        return False
+    log("console is at a U-Boot prompt; sending reset")
+    con.buffer = b""
+    con.send("reset")
+    if con.read_for(cfg.get("reboot_wait", 25), until=cfg.get("reboot_marker", "DDR ")):
+        log("DUT restarted")
+        return True
+    return False
+
+
 def reset_dut(con, target):
     """Get the DUT back into U-Boot's autoboot window.
 
-    Tries each configured method in order. They degrade in the amount of the
-    DUT that has to still be working: SysRq needs a live kernel, a console
+    A board already parked at the U-Boot prompt is reset from there. Otherwise
+    each configured method is tried in order. They degrade in the amount of
+    the DUT that has to still be working: SysRq needs a live kernel, a console
     reboot needs working userspace, and only `command` can recover a board
     that no longer boots at all.
     """
     cfg = target.get("reset") or {}
     methods = cfg.get("methods") or [cfg.get("method", "manual")]
 
+    if uboot_reset(con, cfg):
+        return
     for method in methods:
         if method == "sysrq_reboot":
             if sysrq_reboot(con, cfg):
@@ -171,14 +204,26 @@ def reset_dut(con, target):
     sys.exit("every configured reset method failed")
 
 
+def seen(pattern, logtext):
+    """A pattern is a substring, or a list of alternatives of which any one
+    satisfies it -- e.g. the overlay may come up as ext4 or f2fs."""
+    if isinstance(pattern, (list, tuple)):
+        return any(p in logtext for p in pattern)
+    return pattern in logtext
+
+
+def describe(pattern):
+    return " | ".join(pattern) if isinstance(pattern, (list, tuple)) else pattern
+
+
 def assert_boot(logtext, target):
     """Check a captured boot log against the target's assertions."""
     rules = target["boot_assertions"]
     results, ok = [], True
     for pattern in rules.get("required", []):
-        hit = pattern in logtext
+        hit = seen(pattern, logtext)
         ok &= hit
-        results.append(("required", pattern, hit))
+        results.append(("required", describe(pattern), hit))
     for pattern in rules.get("forbidden", []):
         hit = pattern in logtext
         ok &= not hit
@@ -212,11 +257,65 @@ def capture_boot(con, target, timeout, echo=False):
         if left <= 0:
             return False
         con.read_for(min(2.0, left), echo=echo)
-        if all(p in con.buffer.decode(errors="replace") for p in required):
+        text = con.buffer.decode(errors="replace")
+        if all(seen(p, text) for p in required):
             # Settle briefly so a panic arriving just after the last marker
             # still lands in the log and trips a forbidden assertion.
             con.read_for(2.0, echo=echo)
             return True
+
+
+def plan_pieces(image, size, piece_bytes):
+    """Split the image into (offset, length, all_zero) pieces.
+
+    Images are padded out to the recipe's rootfs partition, so with a 2 GiB
+    rootfs the decompressed file is ~2.1 GB: bigger than the DUT's RAM, and
+    mostly zeros past the end of the squashfs. Each piece is loaded at
+    load_addr and written to its own eMMC offset; all-zero pieces are never
+    transferred at all (see do_flash). One sequential read of the file.
+    """
+    pieces = []
+    with open(image, "rb") as fh:
+        offset = 0
+        while offset < size:
+            data = fh.read(piece_bytes)
+            if not data:
+                break
+            pieces.append((offset, len(data), data.count(0) == len(data)))
+            offset += len(data)
+    return pieces
+
+
+def tftp_load(con, addr, name, length, args):
+    """tftpboot `name` to `addr` and insist U-Boot saw exactly `length` bytes."""
+    # U-Boot ends with "Bytes transferred = N (hex hex)". Sync on the closing
+    # "hex)" rather than on "Bytes transferred": the number is still arriving
+    # when that prefix shows up, and a partial read once yielded "2684" for a
+    # 268435456-byte piece.
+    if not con.send_and_wait("tftpboot %s %s" % (addr, name),
+                             "hex)", args.tftp_timeout, echo=args.verbose):
+        sys.exit("TFTP transfer did not complete (check the direct link)")
+    m = re.search(r"Bytes transferred = (\d+) \(", con.buffer.decode(errors="replace"))
+    if not m or int(m.group(1)) != length:
+        sys.exit("TFTP size mismatch: U-Boot reported %s, expected %d"
+                 % (m.group(1) if m else "nothing", length))
+
+
+def zero_buffer(con, addr, nbytes, args):
+    """Fill nbytes at addr with zeros, in-DUT, so a padding piece can be
+    written without pushing it over the wire. mw.l runs a C loop over the
+    range: a quarter-gigabyte takes well under a second."""
+    if not con.send_and_wait("mw.l %s 0 %x" % (addr, nbytes // 4), UBOOT_PROMPT, 60,
+                             echo=args.verbose):
+        sys.exit("U-Boot did not come back from mw.l")
+    if b"Unknown command" in con.buffer:
+        sys.exit("this U-Boot has no `mw` -- cannot zero-fill padding pieces")
+
+
+def mmc_write(con, addr, lba, nblocks, args):
+    if not con.send_and_wait("mmc write %s %x %x" % (addr, lba, nblocks),
+                             "blocks written: OK", args.write_timeout, echo=args.verbose):
+        sys.exit("mmc write did not report success -- board may not boot")
 
 
 def do_flash(args):
@@ -231,6 +330,16 @@ def do_flash(args):
     blocks = (size + SECTOR - 1) // SECTOR
     log("image %s" % os.path.basename(image))
     log("  %d bytes = %d blocks (0x%x)" % (size, blocks, blocks))
+
+    # Piece size is a property of the board (how much RAM sits above
+    # load_addr); default to one piece for a target that does not say.
+    piece_bytes = int(fl.get("chunk_bytes", 0)) or size
+    if piece_bytes % SECTOR:
+        sys.exit("flash.chunk_bytes must be a multiple of %d" % SECTOR)
+    pieces = plan_pieces(image, size, piece_bytes)
+    n_zero = sum(1 for _, _, z in pieces if z)
+    log("  %d piece(s) of up to %d MiB: %d with data, %d all-zero padding"
+        % (len(pieces), piece_bytes >> 20, len(pieces) - n_zero, n_zero))
 
     with Tftpd(os.path.dirname(image), net["tftp_port"]) as _tftpd, \
          SerialConsole(ser["port"], ser["baud"], args.log) as con:
@@ -254,30 +363,49 @@ def do_flash(args):
             sys.exit("network env did not take:\n%s" % env)
         log("env set: dut=%s server=%s" % (net["dut_ip"], net["host_ip"]))
 
-        log("loading image over TFTP...")
-        if not con.send_and_wait(
-                "tftpboot %s %s" % (fl["load_addr"], os.path.basename(image)),
-                "Bytes transferred", args.tftp_timeout, echo=args.verbose):
-            sys.exit("TFTP transfer did not complete (check the direct link)")
-        m = re.search(r"Bytes transferred = (\d+)", con.buffer.decode(errors="replace"))
-        if not m or int(m.group(1)) != size:
-            sys.exit("TFTP size mismatch: U-Boot reported %s, expected %d"
-                     % (m.group(1) if m else "nothing", size))
-        log("loaded %d bytes into %s" % (size, fl["load_addr"]))
+        if not args.no_write:
+            con.send_and_wait("mmc dev %d" % fl["mmc_dev"], "is current device", 15)
+            log("selected mmc dev %d" % fl["mmc_dev"])
+            log("writing to eMMC (this overwrites the partition table)...")
+
+        # Every piece lands in the same buffer at load_addr, so a zero-filled
+        # buffer stays valid for consecutive padding pieces and only has to be
+        # refilled after a data piece has overwritten it.
+        addr = fl["load_addr"]
+        basename = os.path.basename(image)
+        buffer_zeroed = False
+        written = 0
+        for i, (offset, length, zero) in enumerate(pieces, 1):
+            nblocks = (length + SECTOR - 1) // SECTOR
+            lba = fl["start_block"] + offset // SECTOR
+            where = "piece %d/%d @ %d MiB" % (i, len(pieces), offset >> 20)
+            if zero:
+                if args.no_write:
+                    log("%s: all zero, skipped" % where)
+                    continue
+                if not buffer_zeroed:
+                    zero_buffer(con, addr, piece_bytes, args)
+                    buffer_zeroed = True
+                mmc_write(con, addr, lba, nblocks, args)
+                written += nblocks
+                log("%s: zero-filled %d blocks at lba 0x%x" % (where, nblocks, lba))
+                continue
+            name = basename if len(pieces) == 1 else "%s@%d+%d" % (basename, offset, length)
+            log("%s: loading %d bytes over TFTP..." % (where, length))
+            tftp_load(con, addr, name, length, args)
+            buffer_zeroed = False
+            if args.no_write:
+                continue
+            mmc_write(con, addr, lba, nblocks, args)
+            written += nblocks
+            log("%s: wrote %d blocks at lba 0x%x" % (where, nblocks, lba))
 
         if args.no_write:
-            log("--no-write: stopping before mmc write, eMMC untouched")
+            log("--no-write: transport verified, eMMC untouched")
             return 0
-
-        con.send_and_wait("mmc dev %d" % fl["mmc_dev"], "is current device", 15)
-        log("selected mmc dev %d" % fl["mmc_dev"])
-
-        log("writing to eMMC (this overwrites the partition table)...")
-        if not con.send_and_wait(
-                "mmc write %s %x %x" % (fl["load_addr"], fl["start_block"], blocks),
-                "blocks written: OK", args.write_timeout, echo=args.verbose):
-            sys.exit("mmc write did not report success -- board may not boot")
-        log("write OK: %d blocks" % blocks)
+        if written != blocks:
+            sys.exit("wrote %d blocks but the image has %d" % (written, blocks))
+        log("write OK: %d blocks in %d pieces (%d zero-filled)" % (blocks, len(pieces), n_zero))
 
         log("resetting and capturing the boot...")
         con.buffer = b""

@@ -8,6 +8,12 @@ profile: friendlyarm_nanopi-r5c
 arch: aarch64_generic
 version: "25.12.5"
 
+# Rootfs partition size in MiB. The ImageBuilder default (104) cannot hold the
+# optional Docker/Tailscale package set and leaves almost no persistent
+# overlay; the R5C boots from SD or its 32 GB eMMC. Same reasoning and value
+# as the Radxa E20C recipe (see the comment there).
+rootfs_size_mb: 2048
+
 capabilities:
   wifi: true
 

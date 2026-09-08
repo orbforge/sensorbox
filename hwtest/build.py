@@ -172,6 +172,11 @@ def build_request(recipe_id, form=None):
         # ASU needs ALLOW_DEFAULTS=1 in its env to accept this at all, and
         # caps it at max_defaults_length (20480 by default).
         request["defaults"] = defaults
+    # Rootfs partition size, same as the UI: only when the recipe sets it, so
+    # a recipe without the field keeps ImageBuilder's profile default. ASU
+    # rejects values above MAX_CUSTOM_ROOTFS_SIZE_MB (compose.yaml).
+    if recipe.get("rootfs_size_mb"):
+        request["rootfs_size_mb"] = int(recipe["rootfs_size_mb"])
     return recipe, request
 
 

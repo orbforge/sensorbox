@@ -43,6 +43,15 @@ radxa_e20c: &radxa_e20c
     # Whole-device write, so the partition table goes down too. That is the
     # entire point of this path over sysupgrade, which preserves layout.
     start_block: 0
+    # Largest piece loaded per TFTP transfer. Images are padded out to the
+    # recipe's rootfs partition (2 GiB, recipes/radxa_e20c.yaml), so the
+    # decompressed file is ~2.1 GB and no longer fits this 1 GiB board's RAM
+    # whole. hwtest moves it in pieces this size, each written to its own
+    # eMMC offset; all-zero pieces (the padding past the squashfs) are
+    # zero-filled in RAM by U-Boot instead of sent. 256 MiB from load_addr
+    # ends at 288 MiB, well below U-Boot's relocated copy at the top of RAM.
+    # Multiple of 512.
+    chunk_bytes: 268435456
 
   reset:
     # Tried in order until one works. They degrade in how much of the DUT has
@@ -82,21 +91,27 @@ radxa_e20c: &radxa_e20c
   power_cycle_cmd: null
 
   boot_assertions:
-    # Every one of these must appear in the boot log.
+    # Every one of these must appear in the boot log. An entry may be a list
+    # of alternatives, any one of which satisfies it.
     required:
       - "Starting kernel"
       - "Linux version"
       - "procd: - init -"
       # The important one. 25.12.0 on this target fell back to a tmpfs
       # overlay and silently lost persistence; this is the regression class
-      # the harness exists to catch.
-      - "switching to ext4 overlay"
+      # the harness exists to catch. Which filesystem shows up depends on the
+      # size of the space past the squashfs: fstools formats it f2fs from
+      # 100 MiB up and ext4 below that, so the 2 GiB rootfs recipes get f2fs
+      # where the old 104 MiB default got ext4. Either is a persistent
+      # overlay; tmpfs is the failure, and the forbidden list catches it.
+      - ["switching to ext4 overlay", "switching to f2fs overlay"]
     # Any of these appearing is a failure.
     forbidden:
       - "Kernel panic"
       - "Retry count exceeded"
       - "unable to mount root"
       - "overlay filesystem has not been formatted yet, using tmpfs overlay"
+      - "fallback to ramoverlay"
     # Only expected on the first boot after a fresh write. Absence is not a
     # failure -- it just means the overlay survived, i.e. not a clean flash.
     fresh_flash_hint: "has not been formatted yet"
