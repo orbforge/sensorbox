@@ -1,0 +1,102 @@
+# Hardware-under-test definitions for the hwtest harness.
+#
+# One entry per physical board on the bench. Everything here is specific to
+# how *your* rig is wired -- serial adapter, point-to-point network, which
+# eMMC device U-Boot exposes -- so this file is the only thing that should
+# need editing when the bench changes.
+
+radxa_e20c:
+  description: "Radxa E20C on the bench, flashed over serial + TFTP"
+
+  serial:
+    port: /dev/ttyUSB0
+    # RK3528 U-Boot and the OpenWrt kernel both run the console at 1.5 Mbaud.
+    # Confirmed from the image's own U-Boot env (baudrate=1500000), not guessed.
+    baud: 1500000
+    # U-Boot's autoboot window. bootdelay=2 on this build.
+    autoboot_timeout: 180
+
+  network:
+    # Point-to-point over a USB-ethernet dongle. Deliberately NOT the LAN:
+    # routing U-Boot's traffic through the house router failed because its
+    # ARP for the host's wifi address never resolved. A direct cable also
+    # keeps these addresses valid forever, with no DHCP to drift.
+    #
+    # The cable must be in the E20C's LAN port -- that is ethernet@ffbe0000
+    # (YT8531), U-Boot's ONLY network device. The second port is a PCIe
+    # Realtek that U-Boot cannot see at all.
+    host_ip: 10.0.0.1
+    dut_ip: 10.0.0.2
+    netmask: 255.255.255.0
+    # U-Boot hardcodes TFTP port 69 (this build has no tftpdstp), so
+    # setup/grant-tftp.sh redirects 69 -> this unprivileged port.
+    tftp_port: 6969
+
+  flash:
+    # Where tftpboot parks the image before it is written. 32 MiB in, which
+    # clears the low memory U-Boot itself uses and leaves room for a full
+    # image on a 1 GiB board.
+    load_addr: "0x02000000"
+    # U-Boot mmc device index. 0 = eMMC (8GTF4R, 7.3 GiB, mmc@ffbf0000);
+    # 1 = the SD slot. Verified with `mmc info`.
+    mmc_dev: 0
+    # Whole-device write, so the partition table goes down too. That is the
+    # entire point of this path over sysupgrade, which preserves layout.
+    start_block: 0
+
+  reset:
+    # Tried in order until one works. They degrade in how much of the DUT has
+    # to still be alive:
+    #
+    #   sysrq_reboot   -- BREAK + 'b' on the console. Handled in kernel
+    #                     interrupt context, so it works even when userspace
+    #                     is wedged, and needs no login or password. Needs
+    #                     /proc/sys/kernel/sysrq non-zero (it is, on OpenWrt
+    #                     here). Resets without syncing, so the overlay can
+    #                     be left dirty -- fine when the next step is a
+    #                     full reflash.
+    #   console_reboot -- log in on the console and run `reboot`. Needs
+    #                     working userspace, and credentials if the image
+    #                     sets ttylogin.
+    #   command        -- run power_cycle_cmd. The ONLY method that recovers a
+    #                     board whose kernel does not boot at all.
+    #   manual         -- print a notice and wait for a person.
+    #
+    # Note the E20C has no UART header: its debug USB-C port is an onboard
+    # USB-serial bridge, so the usual DTR/RTS-to-relay trick is unavailable --
+    # those pins are inside the board. Any power switching must be external.
+    methods: [sysrq_reboot, console_reboot, manual]
+
+    # Earliest evidence of a cold restart. Deliberately the DDR init banner
+    # and not the U-Boot one: the autoboot prompt follows the U-Boot banner
+    # within milliseconds, so syncing on that would miss the window.
+    reboot_marker: "DDR "
+    reboot_wait: 25
+
+    # Only needed by console_reboot. A selector-built image sets ttylogin and
+    # a root password via uci-defaults; an image from build.py has no defaults
+    # and drops straight to a root shell.
+    login_user: root
+    login_password: null
+
+  power_cycle_cmd: null
+
+  boot_assertions:
+    # Every one of these must appear in the boot log.
+    required:
+      - "Starting kernel"
+      - "Linux version"
+      - "procd: - init -"
+      # The important one. 25.12.0 on this target fell back to a tmpfs
+      # overlay and silently lost persistence; this is the regression class
+      # the harness exists to catch.
+      - "switching to ext4 overlay"
+    # Any of these appearing is a failure.
+    forbidden:
+      - "Kernel panic"
+      - "Retry count exceeded"
+      - "unable to mount root"
+      - "overlay filesystem has not been formatted yet, using tmpfs overlay"
+    # Only expected on the first boot after a fresh write. Absence is not a
+    # failure -- it just means the overlay survived, i.e. not a clean flash.
+    fresh_flash_hint: "has not been formatted yet"
