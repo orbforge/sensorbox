@@ -83,11 +83,25 @@ link and TFTP will fail with `ARP Retry count exceeded`.
 ./hwtest.py console                         # interactive console
 ```
 
-Images must be **decompressed** (`gzip -dc x.img.gz > x.img`).
+Images must be **decompressed** (`gzip -dc x.img.gz > x.img`). Expect the
+result to be large: ImageBuilder pads the image out to the recipe's rootfs
+partition, so a recipe with `rootfs_size_mb: 2048` yields a ~2.1 GB file even
+though the `.gz` is under 100 MB. Give the image a directory of its own —
+`tftpd.py` serves everything next to it, to anyone on the segment.
+
+That file no longer fits the E20C's 1 GiB of RAM, so the flash moves it in
+pieces of `flash.chunk_bytes` (256 MiB for the E20C). Each piece is loaded at
+`load_addr` and written to its own eMMC offset; pieces that are entirely zero,
+which is all of the padding past the squashfs, are never transferred at all.
+U-Boot zero-fills the buffer once (`mw.l`) and writes that, so the eMMC ends
+up byte-identical to a `dd` of the whole image at a fraction of the wire
+time, and the old overlay is guaranteed gone. `tftpd.py` serves the pieces as
+byte ranges (`image.img@<offset>+<length>`) straight from the one file, so
+nothing is copied on the host either.
 
 `--no-write` is worth using whenever you change the wiring or the network:
-it exercises everything up to and including the TFTP load, then stops
-without touching the device's storage.
+it exercises everything up to and including the TFTP load of every data
+piece, then stops without touching the device's storage.
 
 Exit status is 0 on pass, 1 on assertion failure — so this drops into CI or
 a loop unchanged.
@@ -146,14 +160,19 @@ Keep it outside the repo; `hwtest/*.form.yaml` is gitignored as a guard.
 ## What gets asserted
 
 Configured per target in `targets.yaml`. For the E20C the load-bearing one is
-`switching to ext4 overlay`: 25.12.0 on this target silently fell back to a
-tmpfs overlay and lost persistence across reboots, and that class of
-regression is the reason this harness exists. A `Kernel panic`, a failed
-root mount, or a TFTP retry storm all fail the run.
+`switching to ext4 overlay` or `switching to f2fs overlay` (a required entry
+may list alternatives): 25.12.0 on this target silently fell back to a tmpfs
+overlay and lost persistence across reboots, and that class of regression is
+the reason this harness exists. fstools picks f2fs once the space past the
+squashfs reaches 100 MiB, so the 2 GiB rootfs recipes get f2fs where the old
+104 MiB default got ext4. A `Kernel panic`, a failed root mount, or a TFTP
+retry storm all fail the run.
 
 After a genuine write the log also shows `has not been formatted yet` — the
 overlay being reinitialised is how you know the flash actually replaced what
-was there, rather than the old system booting again.
+was there, rather than the old system booting again. Because the whole
+rootfs partition is written, padding included, this is guaranteed rather than
+a matter of the new squashfs happening to end somewhere else.
 
 ## Getting the board back into U-Boot
 

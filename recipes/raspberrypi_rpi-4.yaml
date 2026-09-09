@@ -10,6 +10,12 @@ arch: aarch64_cortex-a72
 # end-to-end on real hardware (any of: Pi 4B onboard, CM4 onboard, M.2 BE200).
 version: "25.12.5"
 
+# Rootfs partition size in MiB. The ImageBuilder default (104) cannot hold the
+# optional Docker/Tailscale package set and leaves almost no persistent
+# overlay; a Pi always boots from an SD card or eMMC (CM4). Same reasoning and
+# value as the Radxa E20C recipe (see the comment there).
+rootfs_size_mb: 2048
+
 capabilities:
   wifi: true
 

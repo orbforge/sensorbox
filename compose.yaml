@@ -51,6 +51,11 @@ services:
       # included. Bump generously so we have room for follow-on
       # features without re-tripping this validation.
       MAX_DEFAULTS_LENGTH: "65536"
+      # Ceiling for a build request's rootfs_size_mb. ASU's default is 1024,
+      # below the 2048 MiB our SD/eMMC recipes ask for (recipes/README.md,
+      # `rootfs_size_mb`). Validation happens here in the server AND again in
+      # the worker's Settings, so both services carry the same value.
+      MAX_CUSTOM_ROOTFS_SIZE_MB: "4096"
     volumes:
       - ${PUBLIC_PATH}/store:${PUBLIC_PATH}/store:ro
       - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
@@ -70,6 +75,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       MAX_DEFAULTS_LENGTH: "65536"
+      MAX_CUSTOM_ROOTFS_SIZE_MB: "4096"
     volumes:
       - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
       # Upstream ASU no longer reads CONTAINER_SOCKET_PATH; its worker probes
