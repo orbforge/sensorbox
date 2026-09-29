@@ -3,7 +3,7 @@
 //
 // Reads a JSON job on stdin and writes JSON on stdout:
 //
-//   in : {recipe, common, formValues, selectedOptions, extraDefaults}
+//   in : {recipe, common, recipeFile, formValues, selectedOptions, extraDefaults}
 //   out: {packages: [...], defaults: "#!/bin/sh ..."}
 //
 // mergedPackages() and assembleDefaults() are imported from
@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELECTOR = path.resolve(HERE, "..", "firmware-selector", "www", "js");
+const RECIPES = path.resolve(HERE, "..", "recipes");
 
 globalThis.document = {
   querySelector: () => null,
@@ -45,12 +46,18 @@ if (!Mustache) {
 }
 globalThis.window.Mustache = Mustache;
 
-const { mergedPackages, assembleDefaults } = await import(
+const { mergedPackages, assembleDefaults, resolveSectionFiles, recipeFilesDir } = await import(
   path.join(SELECTOR, "sensorbox-recipes.js")
 );
 
 const job = JSON.parse(fs.readFileSync(0, "utf8"));
-const { recipe, common, formValues = {}, selectedOptions = {}, extraDefaults = "" } = job;
+const { recipe, common, recipeFile, formValues = {}, selectedOptions = {}, extraDefaults = "" } = job;
+
+// Same resolver the browser's loadAllRecipes() runs, reading from the recipes
+// directory instead of fetching it from nginx.
+const readRecipeFile = async (rel) => fs.readFileSync(path.join(RECIPES, rel), "utf8");
+await resolveSectionFiles(common, recipeFilesDir("_common.yaml"), readRecipeFile);
+await resolveSectionFiles(recipe, recipeFilesDir(recipeFile || `${recipe.id}.yaml`), readRecipeFile);
 
 // The selector exposes each option's chosen key as a Mustache boolean so
 // templates can gate sections with {{#optname_choicekey}}. Mirror that here or

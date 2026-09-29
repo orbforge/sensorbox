@@ -1,0 +1,8 @@
+#!/bin/sh
+[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
+sleep 3
+CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
+[ -f "$CONF" ] || exit 0
+grep -q 'bgscan=' "$CONF" && exit 0
+sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
+wpa_cli -i phy0-sta0 reconfigure 2>/dev/null

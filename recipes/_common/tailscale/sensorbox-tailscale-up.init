@@ -1,0 +1,64 @@
+#!/bin/sh /etc/rc.common
+START=99
+STOP=
+
+MAX_ATTEMPTS=6
+LOG_FILE=/tmp/tailscale-up.log
+
+redact() {
+    # Strip any tskey-auth-XXX strings from captured output before
+    # logging. Defensive — current tailscale doesn't echo the key,
+    # but a future error message could.
+    sed -E 's/tskey-auth-[A-Za-z0-9_-]+/tskey-auth-REDACTED/g'
+}
+
+boot() {
+    # Wait for tailscaled socket (up to 30s).
+    for i in $(seq 1 30); do
+        [ -S /var/run/tailscale/tailscaled.sock ] && break
+        sleep 1
+    done
+
+    attempt=0
+    while [ "$attempt" -lt "$MAX_ATTEMPTS" ]; do
+        attempt=$((attempt + 1))
+
+        # Per-attempt: wait briefly for outbound connectivity. Skips
+        # quickly when net is already up; gives up to 30s on a fresh
+        # boot before connectivity is fully settled.
+        for i in $(seq 1 30); do
+            ping -c 1 -W 1 1.1.1.1 >/dev/null 2>&1 && break
+            sleep 1
+        done
+
+        # Capture combined output, redact any echoed auth keys, write
+        # to the log file. Exit status comes from tailscale itself.
+        OUTPUT=$(tailscale up \
+            --auth-key='{{{tailscale_auth_key}}}' \
+            --hostname="$(uci get system.@system[0].hostname)" \
+            --ssh 2>&1)
+        rc=$?
+        printf '%s\n' "$OUTPUT" | redact > "$LOG_FILE"
+
+        if [ "$rc" -eq 0 ]; then
+            logger -t sensorbox-tailscale "joined tailnet (attempt $attempt/$MAX_ATTEMPTS)"
+            /etc/init.d/sensorbox-tailscale-up disable 2>/dev/null
+            rm -f /etc/init.d/sensorbox-tailscale-up
+            return 0
+        fi
+
+        # Log redacted error.
+        SAFE_OUTPUT=$(printf '%s' "$OUTPUT" | redact | head -3 | tr '\n' ' ')
+        logger -t sensorbox-tailscale "attempt $attempt/$MAX_ATTEMPTS failed (rc=$rc): $SAFE_OUTPUT"
+
+        # Backoff: 30s, 60s, 120s, 240s, 480s between retries. Skip
+        # sleep on the last attempt.
+        if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+            sleep $((30 * (1 << (attempt - 1))))
+        fi
+    done
+
+    logger -t sensorbox-tailscale "exhausted $MAX_ATTEMPTS attempts; removing init.d so auth key isn't left on disk. Run \`tailscale up\` manually or reflash to retry."
+    /etc/init.d/sensorbox-tailscale-up disable 2>/dev/null
+    rm -f /etc/init.d/sensorbox-tailscale-up
+}
