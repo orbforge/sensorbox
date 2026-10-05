@@ -51,6 +51,7 @@ This has been validated end-to-end for rockchip/armv8 radxa_e20c on OpenWrt 25.1
 - Runs as a multi-container stack via `podman-compose.yml` (server + Podman API + worker + Redis). Builds happen **inside containers** for isolation — don't try to run ImageBuilder directly on the host.
 - `ALLOW_DEFAULTS=1` in the ASU env is required for the custom uci-defaults script flow that sensorbox depends on (baking in credentials).
 - To hack on ASU itself, clone https://github.com/openwrt/asu separately and point `compose.yaml` at a local build; there is no in-tree checkout any more.
+- **Custom branches (e.g. `zero2`) go through `asu-shim/sitecustomize.py`.** Upstream ASU never reads `BRANCHES_FILE`, validates versions/targets/profiles against downloads.openwrt.org, and always pulls the ImageBuilder from ghcr.io. The shim, loaded via `PYTHONPATH` in both ASU services, patches those paths in memory so `branches.yaml` entries build from openwrt-builder's local image. It reaches into ASU internals (`asu.util.reload_*`, podman-py's `ImagesManager.pull`), so after bumping the ASU digest run a real custom-branch build (`hwtest/build.py --recipe friendlyarm_nanopi-zero2`), not just a stock one.
 
 Because this is GPL-2.0 and we've committed to not modifying it, any Orb-specific behavior should live in sensorbox's own layer (compose file, config, sidecar service, or fork of firmware-selector), not in patches to `asu/`.
 

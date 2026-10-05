@@ -40,6 +40,16 @@ elif [ ! -f .config ]; then
     exit 1
 fi
 
+# Incremental builds are not safe here. make treats the cached ImageBuilder
+# tarball as up to date even when the defconfig added kmods, so the stale
+# one gets packaged. And selecting a kmod can change the kernel's vermagic
+# hash, after which any kmod whose stamp is still fresh (seen with
+# kmod-gpio-button-hotplug) keeps depending on the old kernel and apk
+# refuses to install the set. `make clean` drops bin/ and the target
+# build_dir but keeps the toolchain and host tools, so it costs the kernel
+# and package builds only.
+make clean
+
 log "Starting build (this takes ~45 minutes)..."
 export FORCE_UNSAFE_CONFIGURE=1
 # IGNORE_ERRORS=1 continues past ALL build failures including boot
