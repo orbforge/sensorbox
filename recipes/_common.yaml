@@ -252,9 +252,8 @@ sections:
 
   - when: wifi_ssid
     files:
-      # bgscan: OpenWrt's UCI doesn't support bgscan. Inject it via a
-      # hotplug script that patches the wpa_supplicant config on every
-      # wwan ifup and tells wpa_supplicant to reload via wpa_cli.
+      # bgscan: OpenWrt's UCI doesn't support bgscan. A hotplug script sets
+      # it on the live network through wpa_cli on every wwan ifup.
       /etc/hotplug.d/iface/99-bgscan: { src: wifi/99-bgscan.hotplug, mode: "0755" }
     defaults: |
       # Wi-Fi client configuration (common to all Wi-Fi-capable devices).
