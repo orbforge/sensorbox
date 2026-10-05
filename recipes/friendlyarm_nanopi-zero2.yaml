@@ -1,6 +1,6 @@
 id: friendlyarm_nanopi-zero2
 title: "NanoPi Zero2"
-description: "Compact Orb probe with M.2 slot for optional Wi-Fi. Uses a custom OpenWrt build — the first build may take ~45 minutes if the ImageBuilder hasn't been pre-built yet."
+description: "Compact Orb probe with optional Wi-Fi from an M.2 card or a USB adapter. Uses a custom OpenWrt build — the first build may take ~45 minutes if the ImageBuilder hasn't been pre-built yet."
 vendor_url: "https://wiki.friendlyelec.com/wiki/index.php/NanoPi_Zero2"
 
 target: rockchip/armv8
@@ -16,10 +16,12 @@ custom_branch: "zero2"
 capabilities:
   wifi: true
 
-# Same M.2 Wi-Fi module options as the R5C.
+# The R5C's M.2 Wi-Fi module options, plus a USB adapter. One radio only:
+# _common.yaml's Wi-Fi section configures radio0/phy0 and nothing else.
 options:
   wifi_module:
-    label: "Wi-Fi Module (M.2 slot)"
+    label: "Wi-Fi Module"
+    hint: "The USB-A port is USB 2.0 only. USB 3 adapters work but run at USB 2.0 speed (480 Mbps raw), which caps Wi-Fi throughput well below the link rate the adapter reports."
     default: none
     choices:
       none:
@@ -31,6 +33,19 @@ options:
         packages:
           - kmod-iwlwifi
           - iwlwifi-firmware-be200
+          - -wpad-basic-mbedtls
+          - wpad-mbedtls
+          - wpa-cli
+          - iw
+      netgear_a8000:
+        # MediaTek MT7921AU, USB ID 0846:9060, in the USB-A port. That port
+        # is the EHCI host (USB 2.0); the xHCI is the USB-C OTG port that
+        # usb_diagnostic uses, so the two don't conflict. kmod-mt7921u pulls
+        # in the mt7921 firmware and must be selected in zero2.defconfig,
+        # since kmods have to match the custom kernel.
+        label: "Netgear A8000 (Wi-Fi 6E, USB)"
+        packages:
+          - kmod-mt7921u
           - -wpad-basic-mbedtls
           - wpad-mbedtls
           - wpa-cli
