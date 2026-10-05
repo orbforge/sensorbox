@@ -4,7 +4,7 @@ for hw in /sys/class/hwmon/hwmon*; do
     [ -r "$hw/name" ] || continue
     name=$(cat "$hw/name")
     case "$name" in
-        mt76*|iwlwifi|iwl*|ath11k*|ath12k*|rtw89*|brcmfmac*) ;;
+        mt76*|mt79*|iwlwifi|iwl*|ath11k*|ath12k*|rtw89*|brcmfmac*) ;;
         *) continue ;;
     esac
     [ -r "$hw/temp1_input" ] || continue
