@@ -1,0 +1,71 @@
+#!/bin/sh /etc/rc.common
+# Mount configfs, build the NCM gadget, bind it to the dwc3 UDC, bring
+# usb0 up. Idempotent — re-running is a no-op.
+START=85
+STOP=15
+USE_PROCD=1
+
+GADGET_DIR=/sys/kernel/config/usb_gadget/orb
+HOST_MAC=02:11:22:33:44:55
+DEV_MAC=02:aa:bb:cc:dd:ee
+
+start_service() {
+    # Use /proc/mounts (always present) rather than `mountpoint` which
+    # isn't shipped in OpenWrt's busybox build.
+    grep -q ' /sys/kernel/config configfs ' /proc/mounts || \
+        mount -t configfs none /sys/kernel/config 2>/dev/null
+
+    [ -d /sys/kernel/config/usb_gadget ] || {
+        logger -t sensorbox-gadget "usb_gadget configfs subsystem not registered; aborting"
+        return 1
+    }
+
+    # Pick the first UDC (typically fe500000.usb on the Zero2).
+    UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
+    [ -n "$UDC" ] || {
+        logger -t sensorbox-gadget "no UDC available; aborting"
+        return 1
+    }
+
+    if [ ! -d "$GADGET_DIR" ]; then
+        mkdir -p "$GADGET_DIR"
+        echo 0x1d6b > "$GADGET_DIR/idVendor"   # Linux Foundation
+        echo 0x0104 > "$GADGET_DIR/idProduct"  # Multifunction Composite
+        echo 0x0100 > "$GADGET_DIR/bcdDevice"
+        echo 0x0200 > "$GADGET_DIR/bcdUSB"
+
+        mkdir -p "$GADGET_DIR/strings/0x409"
+        echo "sensorbox"        > "$GADGET_DIR/strings/0x409/manufacturer"
+        echo "Sensorbox Zero2"  > "$GADGET_DIR/strings/0x409/product"
+        cat /proc/sys/kernel/random/uuid | tr -d '-' > "$GADGET_DIR/strings/0x409/serialnumber"
+
+        mkdir -p "$GADGET_DIR/configs/c.1/strings/0x409"
+        echo "NCM" > "$GADGET_DIR/configs/c.1/strings/0x409/configuration"
+        echo 250   > "$GADGET_DIR/configs/c.1/MaxPower"
+
+        mkdir -p "$GADGET_DIR/functions/ncm.usb0"
+        echo "$HOST_MAC" > "$GADGET_DIR/functions/ncm.usb0/host_addr"
+        echo "$DEV_MAC"  > "$GADGET_DIR/functions/ncm.usb0/dev_addr"
+
+        ln -s "$GADGET_DIR/functions/ncm.usb0" "$GADGET_DIR/configs/c.1/"
+    fi
+
+    # Bind to UDC if not already bound.
+    if [ -z "$(cat $GADGET_DIR/UDC 2>/dev/null)" ]; then
+        echo "$UDC" > "$GADGET_DIR/UDC"
+    fi
+
+    # Wait briefly for the kernel to create usb0, then let netifd own it.
+    for i in 1 2 3 4 5; do
+        [ -d /sys/class/net/usb0 ] && break
+        sleep 1
+    done
+    ifup usb0 2>/dev/null || true
+    logger -t sensorbox-gadget "gadget configured; bound to $UDC"
+}
+
+stop_service() {
+    [ -d "$GADGET_DIR" ] || return 0
+    echo "" > "$GADGET_DIR/UDC" 2>/dev/null || true
+    ifdown usb0 2>/dev/null || true
+}

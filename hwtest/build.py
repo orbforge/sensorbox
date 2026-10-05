@@ -61,11 +61,13 @@ def api(url, payload=None, timeout=30):
             return e.code, {"detail": body}
 
 
-def render_via_selector(recipe, common, form):
+def render_via_selector(recipe_id, recipe, common, form):
     """Get packages and uci-defaults from the selector's own JS."""
     job = {
         "recipe": recipe,
         "common": common,
+        # Locates the recipe's sections[].files sources (recipes/<recipe_id>/).
+        "recipeFile": "%s.yaml" % recipe_id,
         "formValues": form.get("formValues", {}),
         "selectedOptions": form.get("selectedOptions", {}),
         "extraDefaults": form.get("extraDefaults", "") or "",
@@ -141,7 +143,7 @@ def build_request(recipe_id, form=None):
     defaults = None
     if form is not None:
         form = autofill_form(recipe, form, keys)
-        rendered = render_via_selector(recipe, common, form)
+        rendered = render_via_selector(recipe_id, recipe, common, form)
         packages = rendered["packages"] + toggle_packages(form["formValues"])
         defaults = rendered["defaults"]
         log("rendered defaults: %d bytes (mustache %s)"

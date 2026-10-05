@@ -13,11 +13,11 @@ At build time, the firmware-selector reads every recipe in this directory, shows
 
 The selector concatenates three things into the final `defaults` script sent to ASU:
 
-1. `_common.yaml`'s `defaults` — sensorbox-wide invariants (Orb token injection, Orb apk feed persistence, root password, hostname, `orb-update install`).
-2. The device recipe's `defaults` — hardware-specific configuration.
+1. `_common.yaml`'s script — sensorbox-wide invariants (Orb token injection, Orb apk feed persistence, root password, hostname, `orb-update install`) plus the form-gated features (Tailscale, Docker, telemetry, the eMMC installer, ...).
+2. The device recipe's script — hardware-specific configuration.
 3. The user's "Additional uci-defaults (advanced)" textarea, if non-empty.
 
-Each block is Mustache-rendered with the form inputs, then joined, then sent as ASU's `defaults` field.
+A recipe's script is its `defaults`, followed by its `sections` (see [Sections](#sections)). Each is Mustache-rendered with the form inputs, then joined, then sent as ASU's `defaults` field.
 
 **Packages** from both `_common.yaml` and the selected recipe are deduplicated and merged into a single list on the build request. `_common.yaml`'s `packages` holds dependencies needed by the shared defaults script itself (currently `micrond`, required by `orb-update`'s scheduled checks); the device recipe's `packages` holds device-specific extras (currently `orb`). The final list is sent to ASU with `diff_packages: false`, so it's interpreted as additions on top of the OpenWrt profile's defaults, not a replacement.
 
@@ -45,6 +45,7 @@ Each block is Mustache-rendered with the form inputs, then joined, then sent as 
 | `repositories`    | object | Name → URL mapping for extra apk feeds. Merged with `_common.yaml`'s repos.  |
 | `repository_keys` | list   | Filenames under `recipes/keys/` holding public keys for those feeds.  |
 | `defaults`        | string | Device-specific uci-defaults template. Mustache-rendered. See caveats below. |
+| `sections`        | list   | Feature blocks that install files and run a script, optionally gated on a form value. Rendered after `defaults`. See [Sections](#sections). |
 | `install`         | object | Describes how to install this device to onboard flash (e.g. eMMC) from an SD-booted install. See the subsection below. If absent, the "Install to eMMC" form checkbox is hidden when this recipe is selected. |
 
 ## Capabilities
@@ -82,16 +83,41 @@ Fields:
 
 The user's install-to-eMMC choice at build time is available as Mustache variable `install_to_emmc` (boolean) for conditional section rendering.
 
+## Sections
+
+Keep `defaults` for what it is good at: a few lines of `uci set`. Once a feature needs to drop scripts or config files onto the device — init.d services, CGI handlers, HTML, sudoers — give it a section instead of pasting heredocs into `defaults`:
+
+```yaml
+sections:
+  - when: usb_diagnostic_enabled        # optional; any form value
+    files:                              # destination path: source
+      /etc/avahi/services/wlanpi.service: usb-diagnostic/wlanpi.service
+      /etc/init.d/sensorbox-gadget: { src: usb-diagnostic/sensorbox-gadget.init, mode: "0755" }
+      /etc/config/orb: { src: orb.config, mode: "600", template: true }
+    defaults: |                         # runs after the files are written
+      /etc/init.d/sensorbox-gadget enable
+      uci set network.usb0=interface
+      ...
+```
+
+- **Sources** live in a directory named after the recipe file: `recipes/friendlyarm_nanopi-zero2/` for `friendlyarm_nanopi-zero2.yaml`, `recipes/_common/` for `_common.yaml`. They are ordinary files, so they get syntax highlighting, shellcheck, and no YAML indentation.
+- **`when`** skips the section unless that value is truthy — the same test as wrapping it in `{{#flag}}...{{/flag}}`, and the same variables: form values like `tailscale_enabled` and `install_to_emmc`, and the `<option>_<choice>` booleans generated from `options`. Omit it for a section that always runs.
+- **Files are copied verbatim.** Mustache never sees them, so `{{` in HTML or JavaScript is safe. Add `template: true` to a file that needs form values (the Orb token, the eMMC installer's device paths, ...); it is then rendered like `defaults`, and the triple-brace rule below applies.
+- **`mode`** must be a quoted octal string (`"0755"`, `"600"`). Unquoted `0755` means different numbers to different YAML parsers. Omitted, the file keeps the default `0644`.
+- **Order:** sections render in list order after the recipe's `defaults`. Within a section every file is written first (with `mkdir -p` of its directory), then the section's `defaults` runs, so it can `enable` or configure what it just installed.
+
+Everything still ends up in the one uci-defaults script — ASU's only customization input — as a single-quoted heredoc per file. `hwtest/build.py` renders sections through the selector's own code, so the harness sees exactly what the UI sends.
+
 ## Templating
 
-Every `defaults` block (both in `_common.yaml` and in each recipe) is rendered with [Mustache.js](https://github.com/janl/mustache.js) before being concatenated and sent to ASU. Available variables:
+Every `defaults` block (top-level and in `sections`, both in `_common.yaml` and in each recipe), and every section file marked `template: true`, is rendered with [Mustache.js](https://github.com/janl/mustache.js) before being concatenated and sent to ASU. Available variables:
 
 | variable          | source                                           | presence              |
 |-------------------|--------------------------------------------------|-----------------------|
 | `orb_token`       | Orb Deployment Token form input                  | always                |
 | `root_password`   | Root Password form input                         | always                |
 | `orb_apk_key`     | Contents of the first file listed in `repository_keys` — by convention this must be the Orb apk signing key. Used by `_common.yaml` to persist the feed on the running device so `orb-update` can fetch new Orb versions at runtime. | always |
-| `install_to_emmc` | Whether the user checked the "Install to eMMC on first boot" form checkbox. `_common.yaml` wraps the installer block in `{{#install_to_emmc}}...{{/install_to_emmc}}` so it only appears in the script when true. | always (boolean) |
+| `install_to_emmc` | Whether the user checked the "Install to eMMC on first boot" form checkbox. `_common.yaml` gates the installer section on `when: install_to_emmc` so it only appears in the script when true. | always (boolean) |
 | `install_sd_device`, `install_emmc_device`, `install_size_from_partition`, `install_status_led` | Mirror of the recipe's `install` block fields. Used inside `_common.yaml`'s installer script to parameterize the dd source/target, size calculation, and LED. Empty strings when the recipe has no `install` block. | always (strings) |
 | `wifi_ssid`       | Wi-Fi SSID form input                            | only if `capabilities.wifi` |
 | `wifi_password`   | Wi-Fi password form input                        | only if `capabilities.wifi` |
@@ -123,7 +149,7 @@ uci-defaults scripts run very early in the first boot sequence, **before network
 ## Adding a new recipe
 
 1. Create a YAML file in this directory named after the OpenWrt profile (e.g. `friendlyarm_nanopi-r5c.yaml`).
-2. Fill in the required fields, the `capabilities` block if the device has Wi-Fi, and the `defaults` script for hardware-specific setup.
+2. Fill in the required fields, the `capabilities` block if the device has Wi-Fi, and the `defaults` script for hardware-specific setup. If the device needs files installed (services, helper scripts), put them in `sections` with their sources under `recipes/<recipe-name>/`.
 3. If the device needs additional apk feeds, add them under `repositories` and commit the public keys to `recipes/keys/`.
 4. Test by bringing up the stack and building an image through the browser. Flash to real hardware. GOALS.md explicitly calls out "devices should be set-it-and-forget-it" — if the resulting probe requires manual post-install steps to become useful, the recipe is incomplete.
 5. Open a PR against sensorbox with the new recipe and any matching keys. Describe how you validated it on real hardware.

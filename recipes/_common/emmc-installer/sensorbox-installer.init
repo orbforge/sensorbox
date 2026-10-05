@@ -1,0 +1,166 @@
+#!/bin/sh /etc/rc.common
+START=20
+STOP=
+
+# Config baked in at build time via Mustache substitution before the
+# uci-defaults script was written. These values are literal strings
+# from the recipe's `install` block.
+SD_DEVICE="{{{install_sd_device}}}"
+EMMC_DEVICE="{{{install_emmc_device}}}"
+SIZE_PARTITION="{{{install_size_from_partition}}}"
+STATUS_LED="{{{install_status_led}}}"
+# No sentinel — always flash eMMC when booted from SD with the
+# installer enabled. This lets a single SD card flash multiple
+# devices without re-imaging between each one. The dd is idempotent.
+
+led_write() {
+    echo "$2" > "/sys/class/leds/$STATUS_LED/$1" 2>/dev/null || true
+}
+
+led_working() {
+    led_write trigger timer
+    led_write delay_on 500
+    led_write delay_off 500
+}
+
+led_done() {
+    # Pulse ALL LEDs in unison — unmistakable "install complete"
+    # signal. Loops re-applying the timer trigger every 2s to fight
+    # the system LED service which would otherwise override our
+    # triggers. Traps SIGTERM so poweroff/reboot can shut down
+    # cleanly — without this, the infinite loop blocks shutdown.
+    trap 'exit 0' TERM INT
+    while true; do
+        for led in /sys/class/leds/*/; do
+            echo timer > "${led}trigger" 2>/dev/null || true
+            echo 500 > "${led}delay_on" 2>/dev/null || true
+            echo 500 > "${led}delay_off" 2>/dev/null || true
+        done
+        sleep 2
+    done
+}
+
+led_error() {
+    led_write trigger timer
+    led_write delay_on 100
+    led_write delay_off 100
+}
+
+log() {
+    logger -t orb-installer "$@" 2>/dev/null || true
+}
+
+boot() {
+    # No eMMC on this device variant — skip silently. Some E20C
+    # units ship without onboard flash; a single image covers both.
+    [ -b "$EMMC_DEVICE" ] || { log "no eMMC at $EMMC_DEVICE, skipping"; return 0; }
+
+    # SD device missing — we can't install from nothing. Covers
+    # the case where this service is running on an eMMC-booted
+    # device with no SD inserted.
+    [ -b "$SD_DEVICE" ] || { log "no SD at $SD_DEVICE, skipping"; return 0; }
+
+    # Compute sector count: copy ONLY the static content from sector
+    # 0 through end-of-squashfs. This covers the partition table,
+    # the boot partition (p1), and the read-only squashfs — but
+    # deliberately EXCLUDES the live overlay that occupies the tail
+    # of p2. The eMMC boots with a fresh overlay, re-runs
+    # uci-defaults, and settles into its own clean state.
+    #
+    # loop0 is the ext4 OVERLAY (not the squashfs). Its offset
+    # within p2 tells us where the squashfs ENDS. So the copy
+    # boundary is: p2_start + loop0_offset_in_sectors. Everything
+    # beyond that is live overlay data which must NOT be copied.
+    local p2_start loop0_offset offset_sectors count
+    p2_start=$(cat "/sys/class/block/$SIZE_PARTITION/start" 2>/dev/null)
+    loop0_offset=$(cat /sys/block/loop0/loop/offset 2>/dev/null || echo 0)
+    if [ -z "$p2_start" ] || [ -z "$loop0_offset" ]; then
+        log "ERROR: could not determine copy size (p2_start=$p2_start loop0_offset=$loop0_offset)"
+        led_error
+        return 1
+    fi
+    offset_sectors=$(( (loop0_offset + 511) / 512 ))
+    count=$((p2_start + offset_sectors))
+
+    log "starting SD->eMMC install: $SD_DEVICE -> $EMMC_DEVICE, $count sectors ($((count / 2048)) MiB)"
+    led_working
+
+    # Zero the eMMC's hardware boot partitions (boot0/boot1) if they
+    # exist. Some boards (e.g. NanoPi R5C) ship with a factory Armbian
+    # SPL in boot0 that the Rockchip BROM loads first, overriding our
+    # OpenWrt SPL in the main area. Zeroing forces the BROM to fall
+    # through to the main area where our dd'd content lives. The
+    # partitions are read-only by default; force_ro must be cleared.
+    # Harmless on boards where boot partitions don't exist or are empty.
+    for bp in "${EMMC_DEVICE}boot0" "${EMMC_DEVICE}boot1"; do
+        [ -b "$bp" ] || continue
+        local ro_path="/sys/class/block/$(basename $bp)/force_ro"
+        if [ -f "$ro_path" ]; then
+            echo 0 > "$ro_path" 2>/dev/null || true
+        fi
+        dd if=/dev/zero of="$bp" bs=512 count=8192 >/dev/null 2>&1 || true
+        log "zeroed $bp"
+    done
+
+    sync
+
+    # Run dd standalone, NOT piped to logger. Piping to logger masks
+    # dd's real exit status behind logger's, which burned us badly in
+    # the Phase 2 bring-up: dd was silently failing at install time
+    # but the pipeline reported success, the sentinel was written, the
+    # LED went solid, and we had no idea the eMMC was untouched until
+    # we tried to boot from it. Capture dd's stderr to a temp file and
+    # check its real exit status, then log the captured output.
+    local dd_log dd_status
+    dd_log=/tmp/orb-installer-dd.log
+    # Use a large block size to minimize I/O operations. bs=512 with
+    # ~300K sectors means ~300K individual reads from the SD, which
+    # starves the kernel's concurrent squashfs reads and causes
+    # "xz decompression failed" I/O errors. bs=1M reduces this to
+    # ~150 operations. Convert sector count to MB (round up).
+    local byte_count mb_count
+    byte_count=$((count * 512))
+    mb_count=$(( (byte_count + 1048575) / 1048576 ))
+    dd if="$SD_DEVICE" of="$EMMC_DEVICE" bs=1M count="$mb_count" conv=fsync >"$dd_log" 2>&1
+    dd_status=$?
+
+    # Zero 1 MB at the exact overlay start to wipe any old ext4/f2fs
+    # superblocks. mount_root probes this area on first boot — if it
+    # finds a valid-looking filesystem it tries to mount it instead of
+    # formatting fresh space. The overlay begins at (p2_start_bytes +
+    # loop0_offset) from disk start; use bs=512 seek=count to land
+    # precisely on that boundary, then zero 2048 sectors (1 MB).
+    dd if=/dev/zero of="$EMMC_DEVICE" bs=512 seek="$count" count=2048 conv=fsync >>"$dd_log" 2>&1
+
+    sync
+
+    # Belt-and-suspenders verification: even if dd exited 0, confirm
+    # that sector 0 of the eMMC now matches sector 0 of the SD. If it
+    # doesn't, the write silently didn't land and we should NOT mark
+    # the install successful. This MUST run before the PARTUUID
+    # randomization below, which intentionally modifies sector 0.
+    local sd_hash emmc_hash
+    sd_hash=$(dd if="$SD_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+    emmc_hash=$(dd if="$EMMC_DEVICE" bs=512 count=1 2>/dev/null | sha256sum | awk '{print $1}')
+
+    if [ "$dd_status" -eq 0 ] && [ -n "$sd_hash" ] && [ "$sd_hash" = "$emmc_hash" ]; then
+        # Randomize the eMMC's MBR disk signature (4 bytes at offset 440)
+        # so its PARTUUID differs from the SD's. Without this, both devices
+        # have PARTUUID=5452574f-02 (OpenWrt's default "OWRT" signature),
+        # the kernel finds the eMMC first during enumeration, and all
+        # subsequent "SD boots" actually boot from eMMC. boot.scr reads
+        # the PARTUUID dynamically via `part uuid`, so changing the
+        # signature is all that's needed — no boot.scr patching required.
+        head -c4 /dev/urandom | dd of="$EMMC_DEVICE" bs=1 seek=440 conv=notrunc >>"$dd_log" 2>&1
+        sync
+        log "install complete — all LEDs pulsing — safe to power off and remove SD"
+        while IFS= read -r line; do log "dd: $line"; done < "$dd_log"
+        rm -f "$dd_log"
+        led_done  # never returns — pulses all LEDs until power-off
+    fi
+
+    led_error
+    log "ERROR: install failed (dd_status=$dd_status sd_hash=$sd_hash emmc_hash=$emmc_hash) — SYS LED fast-blinking — reflash the SD card"
+    while IFS= read -r line; do log "dd: $line"; done < "$dd_log" 2>/dev/null
+    return 1
+}

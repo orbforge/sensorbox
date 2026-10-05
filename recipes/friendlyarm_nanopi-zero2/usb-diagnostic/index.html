@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orb Capture Mode</title>
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 2em; text-align: center; }
+  button { font-size: 1.2em; padding: 1em 2em; margin: 1em; border-radius: 8px; border: none; color: white; cursor: pointer; }
+  .on { background: #c33; } .off { background: #393; }
+  #status { margin-top: 2em; font-family: monospace; white-space: pre; text-align: left; max-width: 40em; margin-left: auto; margin-right: auto; }
+</style></head>
+<body>
+<h1>Orb Capture Mode</h1>
+<p>Use before opening WiFi Explorer Pi.</p>
+<button class="on" onclick="hit('/cgi-bin/monitor-on')">Enable Monitor Mode</button>
+<button class="off" onclick="hit('/cgi-bin/monitor-off')">Restore Normal Wi-Fi</button>
+<div id="status"></div>
+<script>
+async function hit(url) {
+  document.getElementById('status').textContent = 'Running ' + url + ' ...';
+  const r = await fetch(url, { method: 'POST' });
+  const t = await r.text();
+  document.getElementById('status').textContent = t;
+}
+</script>
+</body></html>

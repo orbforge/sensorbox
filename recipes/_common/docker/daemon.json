@@ -1,0 +1,5 @@
+{
+  "features": { "containerd-snapshotter": false },
+  "storage-driver": "vfs",
+  "data-root": "/opt/docker"
+}
