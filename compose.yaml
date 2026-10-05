@@ -56,10 +56,14 @@ services:
       # `rootfs_size_mb`). Validation happens here in the server AND again in
       # the worker's Settings, so both services carry the same value.
       MAX_CUSTOM_ROOTFS_SIZE_MB: "4096"
+      # Loads branches.yaml into ASU at interpreter start; see
+      # asu-shim/sitecustomize.py for what it patches and why.
+      PYTHONPATH: /opt/asu-shim
     volumes:
       - ${PUBLIC_PATH}/store:${PUBLIC_PATH}/store:ro
       - ${PUBLIC_PATH}/logs:${PUBLIC_PATH}/logs:ro
       - ./branches.yaml:/app/branches.yaml:ro
+      - ./asu-shim:/opt/asu-shim:ro
     ports:
       # Host-side port only; the container always listens on 8000, which is
       # what selector/nginx.conf.template proxies to internally.
@@ -76,6 +80,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       MAX_DEFAULTS_LENGTH: "65536"
       MAX_CUSTOM_ROOTFS_SIZE_MB: "4096"
+      # Loads branches.yaml into ASU at interpreter start; see
+      # asu-shim/sitecustomize.py for what it patches and why.
+      PYTHONPATH: /opt/asu-shim
     volumes:
       - ${PUBLIC_PATH}:${PUBLIC_PATH}:rw
       # Upstream ASU no longer reads CONTAINER_SOCKET_PATH; its worker probes
@@ -85,6 +92,7 @@ services:
       # "Unable to make connection to UDS '/var/podman.sock'".
       - ${CONTAINER_SOCKET_PATH}:/var/podman.sock:rw
       - ./branches.yaml:/app/branches.yaml:ro
+      - ./asu-shim:/opt/asu-shim:ro
     # The Podman machine VM runs Fedora CoreOS with SELinux enforcing.
     # Without this, the worker can't open the bind-mounted Podman socket
     # even though Unix perms would allow it (EACCES on stat).

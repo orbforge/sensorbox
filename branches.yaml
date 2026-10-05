@@ -4,6 +4,11 @@ zero2:
   snapshot: false
   package_changes: []
   apk: true
+  # ASU has no upstream metadata for a custom branch, so asu-shim answers
+  # its target/profile validation from these (target is builder.target).
+  arch: aarch64_generic
+  profiles:
+    - friendlyarm_nanopi-zero2
   builder:
     repo: "https://github.com/dboze/openwrt"
     branch: "add-rk3528-usb-gadget"
