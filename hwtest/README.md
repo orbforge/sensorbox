@@ -22,7 +22,10 @@ sudo hwtest/setup/grant-serial.sh   # udev rule -> console without sudo
 sudo hwtest/setup/grant-tftp.sh     # redirect UDP/69 -> 6969, unprivileged tftpd
 ```
 
-Neither is needed again, and nothing in normal operation requires `sudo`.
+The udev rule is permanent. The TFTP redirect is a runtime nftables table and
+**does not survive a host reboot**: re-run `grant-tftp.sh` after one, or every
+flash fails at the first piece with `TFTP transfer did not complete`. Nothing
+else in normal operation requires `sudo`.
 `grant-tftp.sh --undo` removes the firewall rule.
 
 ### Wiring
