@@ -1,6 +1,6 @@
 id: radxa_e20c
 title: "Radxa E20C"
-description: "Ethernet-only Orb probe. Two GbE ports bridged as a single LAN client; plug either port into the user's network."
+description: "Orb probe with two GbE ports bridged as a single LAN client; plug either port into the user's network. Optional USB Wi-Fi adapter."
 vendor_url: "https://docs.radxa.com/en/e/e20c"
 install_notes: |
   1. Flash the downloaded image to an **SD card** using [balenaEtcher](https://etcher.balena.io/) or `dd`.
@@ -33,8 +33,32 @@ version: "25.12.5"
 # decompressed image is ~2.1 GB; the .gz download stays small.
 rootfs_size_mb: 2048
 
+# Wi-Fi is an optional USB adapter. With the default "none" the Wi-Fi form
+# fields stay hidden and the image is the ethernet-only probe.
 capabilities:
-  wifi: false
+  wifi: true
+
+options:
+  wifi_module:
+    label: "Wi-Fi Adapter (USB)"
+    hint: "The E20C's USB port is USB 2.0 only. USB 3 adapters work but run at USB 2.0 speed (480 Mbps raw), which caps Wi-Fi throughput well below the link rate the adapter reports."
+    default: none
+    choices:
+      none:
+        label: "None (ethernet only)"
+      netgear_a8000:
+        # MediaTek MT7921AU, USB ID 0846:9060. The E20C's USB port is 2.0
+        # only, so it runs at high speed rather than 5 Gbps -- still well
+        # above what a probe needs. kmod-mt7921u pulls in the mt7921
+        # firmware. The profile ships no Wi-Fi userspace at all, so this
+        # also brings the supplicant plus the iw and wpa_cli that
+        # _common.yaml's Wi-Fi section calls.
+        label: "Netgear A8000 (Wi-Fi 6E)"
+        packages:
+          - kmod-mt7921u
+          - wpad-mbedtls
+          - wpa-cli
+          - iw
 
 # Describes how to install this device to its onboard flash when the user
 # opts in via the "Install to eMMC" checkbox. The installer at runtime

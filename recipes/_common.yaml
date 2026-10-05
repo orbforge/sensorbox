@@ -252,9 +252,8 @@ sections:
 
   - when: wifi_ssid
     files:
-      # bgscan: OpenWrt's UCI doesn't support bgscan. Inject it via a
-      # hotplug script that patches the wpa_supplicant config on every
-      # wwan ifup and tells wpa_supplicant to reload via wpa_cli.
+      # bgscan: OpenWrt's UCI doesn't support bgscan. A hotplug script sets
+      # it on the live network through wpa_cli on every wwan ifup.
       /etc/hotplug.d/iface/99-bgscan: { src: wifi/99-bgscan.hotplug, mode: "0755" }
     defaults: |
       # Wi-Fi client configuration (common to all Wi-Fi-capable devices).
@@ -266,6 +265,18 @@ sections:
       #
       # For auto mode, set country FIRST and reload so iw phy reports
       # 6 GHz frequencies before we generate the scan_list.
+      #
+      # /etc/init.d/boot runs `wifi config` BEFORE kmodloader, and this
+      # script right after it. PCIe radios register their phy while the
+      # module loads, so radio0 already exists; USB radios (e.g. mt7921u)
+      # load firmware and register asynchronously, so on first boot there
+      # is no radio0 yet and every `uci set wireless.radio0.*` below would
+      # fail. Wait for the phy, then have OpenWrt's detection write radio0.
+      for i in $(seq 1 30); do
+          [ -e /sys/class/ieee80211/phy0 ] && break
+          sleep 1
+      done
+      wifi config
       uci set wireless.radio0.band='{{{wifi_radio_band}}}'
       uci set wireless.radio0.channel='auto'
       uci set wireless.radio0.htmode='{{{wifi_radio_htmode}}}'

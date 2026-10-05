@@ -1,8 +1,12 @@
 #!/bin/sh
 [ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "wwan" ] || exit 0
 sleep 3
-CONF="/var/run/wpa-supplicant-phy0-sta0.conf"
-[ -f "$CONF" ] || exit 0
-grep -q 'bgscan=' "$CONF" && exit 0
-sed -i '/^network={/a\        bgscan="simple:10:-45:60"' "$CONF"
-wpa_cli -i phy0-sta0 reconfigure 2>/dev/null
+# Set bgscan on the live network through the control socket, which netifd
+# names after the interface (_common.yaml pins it to wlan0). This applies at
+# once without a reconnect; patching the generated config file and running
+# `wpa_cli reconfigure` instead forces a reassociation and leaves the
+# supplicant without its per-interface socket. wwan only comes up once the
+# station is associated, so the network id is known here.
+ID=$(wpa_cli -i wlan0 status 2>/dev/null | sed -n 's/^id=//p')
+[ -n "$ID" ] || exit 0
+wpa_cli -i wlan0 set_network "$ID" bgscan '"simple:10:-45:60"' >/dev/null
