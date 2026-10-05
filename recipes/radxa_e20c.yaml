@@ -41,6 +41,7 @@ capabilities:
 options:
   wifi_module:
     label: "Wi-Fi Adapter (USB)"
+    hint: "The E20C's USB port is USB 2.0 only. USB 3 adapters work but run at USB 2.0 speed (480 Mbps raw), which caps Wi-Fi throughput well below the link rate the adapter reports."
     default: none
     choices:
       none:
