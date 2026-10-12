@@ -1,0 +1,73 @@
+id: radxa_zero-3e
+title: "Radxa ZERO 3E"
+description: "Small Orb probe with a single GbE port, running from microSD. Optional USB Wi-Fi adapter."
+vendor_url: "https://docs.radxa.com/en/zero/zero3"
+install_notes: |
+  1. Flash the downloaded image to a **microSD card** using [balenaEtcher](https://etcher.balena.io/) or `dd`.
+  2. Insert the card into the ZERO 3E and plug ethernet into your network.
+  3. Power the board through its **USB 2.0 OTG USB-C port**; the other USB-C port is the USB 3.0 host and does not power the board. The probe is ready once it has booted and picked up an address over DHCP.
+
+target: rockchip/armv8
+profile: radxa_zero-3e
+arch: aarch64_generic
+version: "25.12.5"
+
+# Rootfs partition size in MiB. The ImageBuilder default (104) cannot hold the
+# optional Docker/Tailscale package set and leaves almost no persistent
+# overlay; the ZERO 3E boots only from microSD. Same reasoning and value as
+# the Radxa E20C recipe (see the comment there).
+rootfs_size_mb: 2048
+
+# Wi-Fi is an optional USB adapter. With the default "none" the Wi-Fi form
+# fields stay hidden and the image is the ethernet-only probe.
+capabilities:
+  wifi: true
+
+options:
+  wifi_module:
+    label: "Wi-Fi Adapter (USB)"
+    hint: "Plug the adapter into the USB 3.0 USB-C port (a USB-C to USB-A adapter is needed); the other USB-C port powers the board."
+    default: none
+    choices:
+      none:
+        label: "None (ethernet only)"
+      netgear_a8000:
+        # MediaTek MT7921AU, USB ID 0846:9060. Same package set as the E20C:
+        # the profile ships no Wi-Fi userspace, so this brings the supplicant
+        # plus the iw and wpa_cli that _common.yaml's Wi-Fi section calls.
+        label: "Netgear A8000 (Wi-Fi 6E)"
+        packages:
+          - kmod-mt7921u
+          - wpad-mbedtls
+          - wpa-cli
+          - iw
+
+packages:
+  - orb
+
+repositories:
+  orb: "https://pkgs.orb.net/stable/openwrt-apk/aarch64_generic/packages.adb"
+
+repository_keys:
+  - orb-apk-ec.pub
+
+# No `install:` block: the ZERO 3E has no eMMC (its sibling, the 3W, does),
+# so the image runs from the microSD card it was flashed to.
+
+defaults: |
+  # Bridge the single GbE port for DHCP. br-lan keeps shape parity with the
+  # multi-port recipes.
+  uci set network.lan.device='br-lan'
+  uci set network.lan.proto='dhcp'
+  uci -q delete network.lan.ipaddr
+  uci -q delete network.lan.netmask
+  uci set network.@device[0]=device
+  uci set network.@device[0].name='br-lan'
+  uci set network.@device[0].type='bridge'
+  uci set network.@device[0].ports='eth0'
+  uci commit network
+
+  # No WAN: this is a probe, not a router.
+  uci -q delete network.wan
+  uci -q delete network.wan6
+  uci commit network
