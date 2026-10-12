@@ -35,6 +35,8 @@ packages:
 sections:
   # Seed the Orb deployment token. The orb service reads ORB_DEPLOYMENT_TOKEN
   # from /etc/config/orb on first start and auto-links to the user's account.
+  # The token is optional: without one the line is left out, and the probe
+  # is linked from the Orb app, which discovers it on the LAN.
   # See https://orb.net/docs/setup-sensor/linux/openwrt.
   - files:
       /etc/config/orb: { src: orb.config, mode: "600", template: true }

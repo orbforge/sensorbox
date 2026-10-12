@@ -57,7 +57,7 @@ Capabilities describe what hardware the device has, and the UI uses them to deci
 |---------|------|-----------------------------------------------------------------------------------------|
 | `wifi`  | bool | When true, the selector renders Wi-Fi SSID, password, encryption, and band form inputs. |
 
-The mandatory form fields — **Orb Deployment Token** and **Root Password** — are always present and always required. These are not capabilities; they are sensorbox invariants.
+The **Root Password** form field is always present and always required, and the **Orb Deployment Token** field is always present but optional. These are not capabilities; they are sensorbox invariants. A blank token leaves `ORB_DEPLOYMENT_TOKEN` out of `/etc/config/orb`, and the probe is linked from the Orb app on the same network instead.
 
 ## Install to onboard flash (`install` block)
 
@@ -115,7 +115,7 @@ Every `defaults` block (top-level and in `sections`, both in `_common.yaml` and 
 
 | variable          | source                                           | presence              |
 |-------------------|--------------------------------------------------|-----------------------|
-| `orb_token`       | Orb Deployment Token form input                  | always                |
+| `orb_token`       | Orb Deployment Token form input; empty string when left blank | always                |
 | `root_password`   | Root Password form input                         | always                |
 | `orb_apk_key`     | Contents of the first file listed in `repository_keys` — by convention this must be the Orb apk signing key. Used by `_common.yaml` to persist the feed on the running device so `orb-update` can fetch new Orb versions at runtime. | always |
 | `install_to_emmc` | Whether the user checked the "Install to eMMC on first boot" form checkbox. `_common.yaml` gates the installer section on `when: install_to_emmc` so it only appears in the script when true. | always (boolean) |
